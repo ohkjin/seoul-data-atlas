@@ -10,11 +10,21 @@ const URBAN_FEATURE_KEYS = [
   "green_space_share", "activity_facility_density", "aged_housing_share", "parking_capacity",
   "dnpr", "delta_daypop",
 ];
+// The source model contains four additional within-retail composition features.
+// Keep this list separate from URBAN_FEATURE_KEYS: the latter also drives context
+// maps/correlations, while this one must represent the complete SHAP model input.
+const SHAP_FEATURE_KEYS = [
+  ...URBAN_FEATURE_KEYS,
+  "dinebev_share_retail", "everyday_retail_share_retail",
+  "general_share_retail", "large_format_share_retail",
+];
 
 const URBAN_FEATURE_LABELS = {
   land_price: "Land Price (log)", subway_access_coverage: "Subway Access", bus_stop_density: "Bus Stop Density",
   retail_share: "Retail Share", dinebev_share_all: "Dining/Bev Share", everyday_retail_share_all: "Everyday Retail Share",
   general_share_all: "General Retail Share", large_format_share_all: "Large-Format Share",
+  dinebev_share_retail: "Dining Share of Retail", everyday_retail_share_retail: "Everyday Share of Retail",
+  general_share_retail: "General Share of Retail", large_format_share_retail: "Large-Format Share of Retail",
   elderly_share: "Elderly Share", low_income_share: "Low-Income Share", residential_area_share: "Residential Land",
   commercial_area_share: "Commercial Land", leisure_area_share: "Leisure Land", transportation_area_share: "Transport Land",
   public_facility_area_share: "Public Facility Land", green_space_share: "Green Space",
@@ -129,8 +139,10 @@ const Atlas = {
       fetch(base + "industry_stats.json").then((r) => r.json()),
       fetch(base + "gu_daily_timeseries.json").then((r) => r.json()),
       fetch(base + "dong_points.json").then((r) => r.json()),
-      fetch(base + "roads.json").then((r) => r.json()),
-      fetch(base + "buildings.json").then((r) => r.json()),
+      // roads is committed; buildings.json is gitignored (regenerate via fetch script) —
+      // both tolerate a missing file so a fresh clone still boots (buildings just don't render).
+      fetch(base + "roads.json").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      fetch(base + "buildings.json").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch(base + "gu_group_daily.json").then((r) => r.json()),
       fetch(base + "dong_group_daily.json").then((r) => r.json()),
     ]);
@@ -148,6 +160,25 @@ const Atlas = {
     this._buildDotField();
     this.loaded = true;
   },
+
+  // Lazily fetch an optional OSM context layer (nature | transit | amenity) on first
+  // toggle — deliberately NOT in the eager load() above (keeps startup light). Cached;
+  // concurrent toggles share one in-flight request; a missing file resolves to null.
+  _osm: {},
+  _osmPromises: {},
+  ensureOSM(name) {
+    if (this._osm[name] !== undefined) return Promise.resolve(this._osm[name]);
+    if (this._osmPromises[name]) return this._osmPromises[name];
+    const p = fetch("data/" + name + ".json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { this._osm[name] = data || null; return this._osm[name]; })
+      .catch(() => { this._osm[name] = null; return null; });
+    this._osmPromises[name] = p;
+    return p;
+  },
+  // Which OSM sets are loaded — folded into the map's static-layer cache key so a
+  // lazy load busts the cache and the layer actually appears.
+  osmLoadedKey() { return Object.keys(this._osm).filter((k) => this._osm[k]).sort().join(","); },
 
   // Flatten synthesized in-polygon points into one array with a stable per-point
   // pseudo-random rank (0..1). The dot-density layer shows a point only when its
@@ -216,11 +247,24 @@ const Atlas = {
   timeDayCount() { return this.timeDates().length; },
 
   // One 366-length series of {date, temp, sales} for a scope. Citywide = mean
-  // temp / summed sales across gu; gu (or a drilled dong's parent gu) = that row.
+  // temp / summed sales across gu; gu = its daily row; dong = parent-gu weather
+  // plus that clicked dong's summed daily sales-theme values.
   dailySeries(scope) {
     const dates = this.timeDates();
     const guCode = scope.level === "city" ? null
       : (scope.guCode || this.dongByCode.get(scope.dongCode)?.gu_code);
+    const dongSeries = scope.level === "dong" && this.dongGroupDaily
+      ? this.dongGroupDaily.dong[scope.dongCode]
+      : null;
+    if (dongSeries && guCode && this.guTimeseries[guCode]) {
+      const weather = this.guTimeseries[guCode];
+      return dates.map((date, i) => {
+        const w = weather[i] || {};
+        const groups = dongSeries[i] || [];
+        const sales = groups.reduce((sum, v) => sum + (v || 0), 0);
+        return { date: w.date || date, temp: w.temp_max, sales };
+      });
+    }
     if (guCode && this.guTimeseries[guCode]) {
       return this.guTimeseries[guCode].map((d) => ({ date: d.date, temp: d.temp_max, sales: d.retail_total_amount }));
     }
@@ -305,6 +349,137 @@ const Atlas = {
   },
   groupYearMaxDong(i) { return (this.dongGroupDaily && this.dongGroupDaily.year_max[i]) || 1; },
 
+  // Annual per-region theme totals (sum of the daily 6-value arrays) for the
+  // static Sector view → { code: [6] }. Cached; gu rows carry .g, dong rows are [6].
+  groupTotalsByGu() {
+    if (this._groupTotGu) return this._groupTotGu;
+    const out = {};
+    if (this.groupDaily) Object.entries(this.groupDaily.gu).forEach(([g, rows]) => {
+      const sum = [0, 0, 0, 0, 0, 0];
+      rows.forEach((r) => r && r.g && r.g.forEach((v, i) => sum[i] += (v || 0)));
+      out[g] = sum;
+    });
+    return (this._groupTotGu = out);
+  },
+  groupTotalsByDongInGu(guCode) {
+    const out = {};
+    if (!this.dongGroupDaily) return out;
+    this.dongGeometry.forEach((d) => {
+      if (d.gu_code !== guCode) return;
+      const series = this.dongGroupDaily.dong[d.dong_code];
+      if (!series) return;
+      const sum = [0, 0, 0, 0, 0, 0];
+      series.forEach((row) => row && row.forEach((v, i) => sum[i] += (v || 0)));
+      out[d.dong_code] = sum;
+    });
+    return out;
+  },
+  // All-dong versions (for dong-grain citywide) → { dong_code: [6] }.
+  groupSalesByDong(dayIndex) {
+    const out = {};
+    if (!this.dongGroupDaily) return out;
+    Object.entries(this.dongGroupDaily.dong).forEach(([code, series]) => {
+      if (series && series[dayIndex]) out[code] = series[dayIndex];
+    });
+    return out;
+  },
+  groupTotalsByDong() {
+    if (this._groupTotDong) return this._groupTotDong;
+    const out = {};
+    if (this.dongGroupDaily) Object.entries(this.dongGroupDaily.dong).forEach(([code, series]) => {
+      const sum = [0, 0, 0, 0, 0, 0];
+      series.forEach((row) => row && row.forEach((v, i) => sum[i] += (v || 0)));
+      out[code] = sum;
+    });
+    return (this._groupTotDong = out);
+  },
+
+  // ---------- Urban-feature / SHAP group "profiles" for the Sector view ----------
+  // The 4 CONTEXT_GROUPS as N-value glyphs per region (parallel to the 6 sales
+  // themes). Urban features have incompatible units, so each is min–max normalised
+  // 0–1 across dongs and a group value = the mean of its member features. SHAP is
+  // additive, so a group value = the summed |contribution| of its features.
+  _contextGroups() { return (typeof CONTEXT_GROUPS !== "undefined") ? Object.values(CONTEXT_GROUPS) : []; },
+  contextGroupColors() { return this._contextGroups().map((g, i) => this.GROUP_COLORS[i % this.GROUP_COLORS.length]); },
+  contextGroupLabels() { return this._contextGroups().map((g) => g.title); },
+  _featNorm() {
+    if (this._featNormCache) return this._featNormCache;
+    const ranges = {};
+    URBAN_FEATURE_KEYS.forEach((k) => {
+      let lo = Infinity, hi = -Infinity;
+      this.dongMetrics.forEach((d) => { const v = d[k]; if (v != null && !Number.isNaN(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } });
+      ranges[k] = { lo: lo === Infinity ? 0 : lo, hi: hi > lo ? hi : (lo === Infinity ? 1 : lo + 1e-9) };
+    });
+    return (this._featNormCache = ranges);
+  },
+  _normFeat(d, k) {
+    const r = this._featNorm()[k]; if (!r) return 0;
+    const v = d[k]; if (v == null || Number.isNaN(v)) return 0;
+    return Math.max(0, Math.min(1, (v - r.lo) / (r.hi - r.lo)));
+  },
+  featureGroupProfileByDong() {
+    if (this._featProfDong) return this._featProfDong;
+    const groups = this._contextGroups(), out = {};
+    this.dongMetrics.forEach((d) => {
+      out[d.dong_code] = groups.map((g) => {
+        const cols = g.columns || []; if (!cols.length) return 0;
+        let s = 0; cols.forEach((c) => s += this._normFeat(d, c));
+        return s / cols.length;
+      });
+    });
+    return (this._featProfDong = out);
+  },
+  shapGroupProfileByDong() {
+    if (this._shapProfDong) return this._shapProfDong;
+    const groups = this._contextGroups(), out = {};
+    this.dongMetrics.forEach((d) => {
+      out[d.dong_code] = groups.map((g) => {
+        let s = 0; (g.columns || []).forEach((c) => s += Math.abs(d["shap_" + c] || 0));
+        return s;
+      });
+    });
+    return (this._shapProfDong = out);
+  },
+  // NET signed SHAP per group (keeps direction: + raises heat sensitivity, − buffers).
+  shapGroupProfileSignedByDong(selectedKeys = null) {
+    if (!selectedKeys && this._shapSignedDong) return this._shapSignedDong;
+    const selected = selectedKeys ? new Set(selectedKeys) : null;
+    const groups = this._contextGroups(), out = {};
+    this.dongMetrics.forEach((d) => {
+      out[d.dong_code] = groups.map((g) => {
+        let s = 0;
+        (g.columns || []).forEach((c) => {
+          if (!selected || selected.has(c)) s += (d["shap_" + c] || 0);
+        });
+        return s;
+      });
+    });
+    if (!selectedKeys) this._shapSignedDong = out;
+    return out;
+  },
+  shapGroupProfileSignedByGu(selectedKeys = null) {
+    return this._groupProfileByGu(
+      this.shapGroupProfileSignedByDong(selectedKeys),
+      selectedKeys ? null : "_shapSignedGu"
+    );
+  },
+  // Gu-level = mean of the gu's dong profiles (works for both feature + SHAP profiles).
+  _groupProfileByGu(byDong, cacheKey) {
+    if (cacheKey && this[cacheKey]) return this[cacheKey];
+    const n = this._contextGroups().length, acc = {}, cnt = {};
+    this.dongMetrics.forEach((d) => {
+      const v = byDong[d.dong_code]; if (!v) return;
+      if (!acc[d.gu_code]) { acc[d.gu_code] = new Array(n).fill(0); cnt[d.gu_code] = 0; }
+      v.forEach((x, i) => acc[d.gu_code][i] += x); cnt[d.gu_code]++;
+    });
+    const out = {};
+    Object.keys(acc).forEach((g) => out[g] = acc[g].map((x) => x / (cnt[g] || 1)));
+    if (cacheKey) this[cacheKey] = out;
+    return out;
+  },
+  featureGroupProfileByGu() { return this._groupProfileByGu(this.featureGroupProfileByDong(), "_featProfGu"); },
+  shapGroupProfileByGu() { return this._groupProfileByGu(this.shapGroupProfileByDong(), "_shapProfGu"); },
+
   industryScopeKey(scope) {
     return scope.level === "city" ? "city" : scope.guCode;
   },
@@ -355,10 +530,11 @@ const Atlas = {
   // ---------- WHY: SHAP feature importance (ranked) ----------
   featureImportance(scope, n = 10) {
     const dongs = this.dongsInScope(scope);
-    const rows = URBAN_FEATURE_KEYS.map((k) => {
-      const mag = dongs.reduce((s, d) => s + Math.abs(d["shap_" + k] || 0), 0) / (dongs.length || 1);
-      const signed = dongs.reduce((s, d) => s + (d["shap_" + k] || 0), 0) / (dongs.length || 1);
-      return { key: k, label: URBAN_FEATURE_LABELS[k], importance: mag, signed };
+    const rows = SHAP_FEATURE_KEYS.map((k) => {
+      const vals = dongs.map((d) => d["shap_" + k]).filter((v) => Number.isFinite(v));
+      const mag = vals.length ? vals.reduce((s, v) => s + Math.abs(v), 0) / vals.length : 0;
+      const signed = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+      return { key: k, label: URBAN_FEATURE_LABELS[k], importance: mag, signed, count: vals.length };
     });
     return rows.sort((a, b) => b.importance - a.importance).slice(0, n);
   },
@@ -367,10 +543,49 @@ const Atlas = {
   signedDrivers(dongCode, n = 8) {
     const rec = this.dongByCode.get(dongCode);
     if (!rec) return [];
-    return URBAN_FEATURE_KEYS
-      .map((k) => ({ key: k, label: URBAN_FEATURE_LABELS[k], value: rec["shap_" + k] || 0 }))
+    return SHAP_FEATURE_KEYS
+      .map((k) => ({ key: k, label: URBAN_FEATURE_LABELS[k], value: rec["shap_" + k] }))
+      .filter((r) => Number.isFinite(r.value))
       .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
       .slice(0, n);
+  },
+
+  // Feature value versus its SHAP contribution. This is a model-dependence view,
+  // not a feature-versus-observed-outcome correlation.
+  shapDependence(featureKey) {
+    return this.dongMetrics
+      .map((d) => ({
+        x: d[featureKey], y: d["shap_" + featureKey],
+        dong_code: d.dong_code, dong_name: d.dong_name,
+      }))
+      .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.y));
+  },
+
+  // Distribution of the most important SHAP features within a scope. Quartiles
+  // preserve variation that would disappear in a signed district mean.
+  shapFeatureDistributions(scope, n = 6) {
+    const dongs = this.dongsInScope(scope);
+    const quantile = (sorted, p) => {
+      if (!sorted.length) return null;
+      const i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
+      return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+    };
+    return this.featureImportance(scope, n).map((f) => {
+      const vals = dongs.map((d) => d["shap_" + f.key]).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+      return {
+        ...f,
+        stats: vals.length ? [vals[0], quantile(vals, 0.25), quantile(vals, 0.5), quantile(vals, 0.75), vals[vals.length - 1]] : null,
+        positiveShare: vals.length ? vals.filter((v) => v > 0).length / vals.length : null,
+      };
+    }).filter((f) => f.stats);
+  },
+
+  shapCoverage(scope) {
+    const dongs = scope.level === "dong"
+      ? [this.dongByCode.get(scope.dongCode)].filter(Boolean)
+      : this.dongsInScope(scope);
+    const valid = dongs.filter((d) => SHAP_FEATURE_KEYS.some((k) => Number.isFinite(d["shap_" + k]))).length;
+    return { valid, total: dongs.length, features: SHAP_FEATURE_KEYS.length };
   },
 
   // Scatter of one urban feature vs RHSI across the scope's dongs.
@@ -470,7 +685,9 @@ const Atlas = {
     return { key: r.key, label: this.industryLabel(r.key), hot: r.hot, mild: r.mild, sensitivity: r.sensitivity, rhsi: r.mild > 0 ? Math.log(r.hot / r.mild) : null, rank: 1 };
   },
   heatDayCounts(scope) {
-    const dongs = this.dongsInScope(scope);
+    const dongs = scope.level === "dong"
+      ? [this.dongByCode.get(scope.dongCode)].filter(Boolean)
+      : this.dongsInScope(scope);
     if (!dongs.length) return { hot: 0, mild: 0 };
     return {
       hot: Math.round(dongs.reduce((s, d) => s + (d.n_hot_days || 0), 0) / dongs.length),
@@ -527,12 +744,34 @@ const Atlas = {
   },
 
   metricSpec(key) {
-    return this.availableMapMetrics().find((m) => m.key === key) || null;
+    const m = this.availableMapMetrics().find((m) => m.key === key);
+    if (m) return m;
+    if (typeof key === "string" && key.startsWith("grp_")) return this._groupSpec(key.slice(4));
+    return null;
+  },
+  // Synthetic "whole theme group" metric — sales groups aggregate their industries'
+  // heat-sensitivity; context groups (heterogeneous units) use their headline feature.
+  _groupSpec(gkey) {
+    const S = (typeof SALES_GROUPS !== "undefined") ? SALES_GROUPS : {};
+    const C = (typeof CONTEXT_GROUPS !== "undefined") ? CONTEXT_GROUPS : {};
+    if (S[gkey]) return { key: "grp_" + gkey, label: S[gkey].title + " (group)", kind: "group", gkind: "sales", signed: true, columns: S[gkey].columns };
+    if (C[gkey]) return { key: "grp_" + gkey, label: C[gkey].title + " (group)", kind: "group", gkind: "context", signed: C[gkey].mapKey === "delta_daypop", headline: C[gkey].mapKey };
+    return null;
+  },
+  // Heat-sensitivity of a group of industries at a dong: log-free (hot-mild)/mild of
+  // the summed group sales, so the whole theme reads as one diverging value.
+  dongGroupSensitivity(dongCode, keys) {
+    const s = this.salesByDong.get(dongCode);
+    if (!s) return null;
+    let hot = 0, mild = 0, any = false;
+    keys.forEach((k) => { const h = s[k + "_hot"], m = s[k + "_mild"]; if (h != null && m != null) { hot += h; mild += m; any = true; } });
+    return (any && mild > 0) ? (hot - mild) / mild : null;
   },
 
   metricValue(dong, spec) {
     if (!spec) return null;
     if (spec.kind === "industry") return this.dongIndustrySensitivity(dong.dong_code, spec.key);
+    if (spec.kind === "group") return spec.gkind === "sales" ? this.dongGroupSensitivity(dong.dong_code, spec.columns) : dong[spec.headline];
     return dong[spec.key];
   },
 

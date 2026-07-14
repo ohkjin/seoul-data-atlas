@@ -44,7 +44,7 @@ function renderRhsiHistogram(el, scope) {
     tooltip: { trigger: "axis", formatter: (p) => `RHSI ≈ ${p[0].axisValue}<br/>${p[0].value} neighborhoods` },
     series: [{
       type: "bar", barWidth: "92%",
-      data: bins.map((b) => ({ value: b.count, itemStyle: { color: b.sensitive ? C_MAGENTA : C_BLUE } })),
+      data: bins.map((b) => ({ value: b.count, itemStyle: { color: b.sensitive ? C_BLUE : C_MAGENTA } })),
       markLine,
     }],
   });
@@ -65,7 +65,7 @@ function renderFeatureImportanceBar(el, scope, onBarClick) {
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (p) => `${p[0].axisValue}<br/>mean |SHAP| ${(+p[0].value).toFixed(4)}<br/><span style="color:#8C93A3">click to expand →</span>` },
     series: [{
       type: "bar", barWidth: "62%",
-      data: rows.map((r) => ({ value: r.importance, key: r.key, itemStyle: { color: r.signed < 0 ? C_MAGENTA : C_BLUE, borderRadius: [0, 3, 3, 0] } })),
+      data: rows.map((r) => ({ value: r.importance, key: r.key, itemStyle: { color: r.signed < 0 ? C_BLUE : C_MAGENTA, borderRadius: [0, 3, 3, 0] } })),
     }],
   });
   chart.on("click", (p) => { if (p.data && p.data.key && onBarClick) onBarClick(p.data.key); });
@@ -89,7 +89,7 @@ function renderIndustryDivergingBar(el, scope, onBarClick) {
     series: [{
       type: "bar", barWidth: "62%",
       label: { show: true, position: "right", color: "#8C93A3", fontSize: 9, formatter: (p) => pct(p.data.value) },
-      data: rows.map((r) => ({ value: r.sensitivity, key: r.key, itemStyle: { color: r.sensitivity < 0 ? C_MAGENTA : C_GREEN } })),
+      data: rows.map((r) => ({ value: r.sensitivity, key: r.key, itemStyle: { color: r.sensitivity < 0 ? C_BLUE : C_MAGENTA } })),
     }],
   });
   chart.on("click", (p) => { if (p.data && p.data.key && onBarClick) onBarClick(p.data.key); });
@@ -149,7 +149,7 @@ function renderIndustryDongRankingList(el, industryKey) {
     <div class="rank-row">
       <span class="rank-num">${i + 1}</span>
       <span class="rank-name">${r.dong_name}</span>
-      <span class="rank-bar-wrap"><span class="rank-bar" style="width:${(Math.abs(r.sensitivity) / max * 100).toFixed(0)}%;background:${r.sensitivity < 0 ? C_MAGENTA : C_GREEN}"></span></span>
+      <span class="rank-bar-wrap"><span class="rank-bar" style="width:${(Math.abs(r.sensitivity) / max * 100).toFixed(0)}%;background:${r.sensitivity < 0 ? C_BLUE : C_MAGENTA}"></span></span>
       <span class="rank-val">${pct(r.sensitivity)}</span>
     </div>
   `).join("");
@@ -207,7 +207,7 @@ function renderScatter3D(el, scope, fxKey, fyKey) {
     tooltip: { formatter: (p) => `${p.data.name}<br/>${URBAN_FEATURE_LABELS[fxKey]}: ${p.data.value[0]}<br/>${URBAN_FEATURE_LABELS[fyKey]}: ${p.data.value[1]}<br/>RHSI: ${p.data.value[2].toFixed(3)}` },
     visualMap: {
       show: false, dimension: 2, min: Math.min(...rhsis), max: Math.max(...rhsis),
-      inRange: { color: ["#E45C91", "#786E8C", "#7DA7FF"] },
+      inRange: { color: ["#7DA7FF", "#786E8C", "#E4524E"] },
     },
     xAxis3D: { name: URBAN_FEATURE_LABELS[fxKey], type: "value", nameTextStyle: { color: "#8C93A3" }, axisLabel: { color: "#8C93A3", fontSize: 8 } },
     yAxis3D: { name: URBAN_FEATURE_LABELS[fyKey], type: "value", nameTextStyle: { color: "#8C93A3" }, axisLabel: { color: "#8C93A3", fontSize: 8 } },
@@ -235,7 +235,7 @@ function renderSurface(el, fxKey, fyKey) {
   const zs = grid.data.map((d) => d[2]);
   chart.setOption({
     tooltip: {},
-    visualMap: { show: false, dimension: 2, min: Math.min(...zs), max: Math.max(...zs), inRange: { color: ["#E45C91", "#786E8C", "#7DA7FF"] } },
+    visualMap: { show: false, dimension: 2, min: Math.min(...zs), max: Math.max(...zs), inRange: { color: ["#7DA7FF", "#786E8C", "#E4524E"] } },
     xAxis3D: { name: URBAN_FEATURE_LABELS[fxKey], type: "value", nameTextStyle: { color: "#8C93A3" }, axisLabel: { color: "#8C93A3", fontSize: 8 } },
     yAxis3D: { name: URBAN_FEATURE_LABELS[fyKey], type: "value", nameTextStyle: { color: "#8C93A3" }, axisLabel: { color: "#8C93A3", fontSize: 8 } },
     zAxis3D: { name: "RHSI", type: "value", nameTextStyle: { color: "#8C93A3" }, axisLabel: { color: "#8C93A3", fontSize: 8 } },
@@ -337,7 +337,7 @@ function topCharacteristicsHtml(scope) {
   return `<div class="ins-widget">
     <div class="iw-head"><span class="iw-title">${isDong ? "Why this place is heat-sensitive" : "Top contributing urban characteristics"}</span><span class="iw-sub">${isDong ? scopeSub(scope) : "correlation · city-wide"}</span></div>
     <div class="corr-list">${body}</div>
-    <div class="iw-cap">${isDong ? "SHAP contributions to this dong's RHSI — blue raises it, magenta lowers it." : "Pearson correlation with RHSI across 422 dongs; blue raises, magenta lowers hot-day sales."}</div>
+    <div class="iw-cap">${isDong ? "SHAP contributions to this dong's RHSI — rose raises it (more resilient), blue lowers it (more heat-sensitive)." : "Pearson correlation with RHSI across 422 dongs; rose raises RHSI, blue lowers it."}</div>
   </div>`;
 }
 
@@ -412,6 +412,148 @@ function regionSummaryHtml(scope) {
   </figure>`;
 }
 
+// SHAP-only summary used when the model-explanation dataset is selected.
+// It intentionally replaces the retail KPI strip so Insights stays on-topic.
+function shapSummaryHtml(scope) {
+  const coverage = Atlas.shapCoverage(scope);
+  const isDong = scope.level === "dong";
+  const local = isDong ? Atlas.signedDrivers(scope.dongCode, 1)[0] : null;
+  const global = !isDong ? Atlas.featureImportance(scope, 1)[0] : null;
+  const lead = local || global;
+  const leadValue = !lead ? "—" : isDong
+    ? `${lead.value >= 0 ? "+" : ""}${lead.value.toFixed(3)}`
+    : lead.importance.toFixed(3);
+  const leadNote = !lead ? "no model explanation available" : isDong
+    ? `${lead.label} · signed contribution`
+    : `${lead.label} · mean |SHAP|`;
+  const cell = (key, value, sub, primary = false) =>
+    `<div class="metric-block${primary ? " primary" : ""}><span class="metric-key">${key}</span><div class="metric-value">${value}</div><span class="metric-sub">${sub}</span></div>`;
+  return `<figure class="ins-fig ins-kpi-fig">
+    <div class="fig-head"><span class="fig-kicker">MODEL</span><h4 class="fig-title">SHAP explanation scope</h4></div>
+    <p class="fig-finding">SHAP describes how each input changes the model's <b>predicted RHSI</b>. It does not identify a causal effect.</p>
+    <div class="key-metrics ins-kpi-grid">
+      ${cell("Explained output", "RHSI", "model prediction", true)}
+      ${cell("Model inputs", coverage.features, "complete SHAP feature set")}
+      ${cell("Coverage", `${coverage.valid}/${coverage.total}`, "dongs with contributions")}
+      ${cell(isDong ? "Largest local push" : "Top importance", leadValue, leadNote)}
+    </div>
+    <p class="fig-caption">Positive SHAP → higher predicted RHSI (more resilient) · negative SHAP → lower predicted RHSI (more heat-sensitive).</p>
+  </figure>`;
+}
+
+// Dataset-specific KPI strip. Cross-dataset KPIs are reserved for the project
+// overview (datasetId = null); every dataset page describes only its own fields.
+function datasetSummaryHtml(scope, datasetId) {
+  if (!datasetId) return regionSummaryHtml(scope);
+  if (datasetId === "shap") return shapSummaryHtml(scope);
+  const dongs = scope.level === "dong"
+    ? [Atlas.dongByCode.get(scope.dongCode)].filter(Boolean)
+    : Atlas.dongsInScope(scope);
+  const mean = (key) => {
+    const vals = dongs.map((d) => d && d[key]).filter((v) => Number.isFinite(v));
+    return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+  };
+  const cell = (key, value, sub, primary = false, signed = null) =>
+    `<div class="metric-block${primary ? " primary" : ""}><span class="metric-key">${key}</span><div class="metric-value${signed == null ? "" : " " + signClass(signed)}">${value}</div><span class="metric-sub">${sub}</span></div>`;
+  const wrap = (title, finding, cells, caption) => `<figure class="ins-fig ins-kpi-fig">
+    <div class="fig-head"><span class="fig-kicker">DATASET</span><h4 class="fig-title">${title}</h4></div>
+    <p class="fig-finding">${finding}</p><div class="key-metrics ins-kpi-grid">${cells}</div>
+    <p class="fig-caption">${caption}</p></figure>`;
+  const days = Atlas.heatDayCounts(scope);
+
+  if (datasetId === "rhsi") {
+    const v = Atlas.retailHSI(scope), pct = Atlas.rhsiToPct(v);
+    const rank = scope.level === "dong" ? Atlas.dongByCode.get(scope.dongCode)?.rhsi_rank
+      : scope.level === "gu" ? Atlas.guByCode.get(scope.guCode)?.rhsi_rank : null;
+    return wrap("RHSI summary", "Observed retail sales on extreme-heat days compared with mild reference days.",
+      cell("RHSI", fmtHSI(v), hsiPct(v), true, v) +
+      cell("Approx. change", pct == null ? "—" : `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`, "exp(RHSI) − 1", false, v) +
+      cell("Rank", rank ? `${rank}` : "—", rank ? (scope.level === "dong" ? "of 422 dongs" : "of 25 districts") : "citywide") +
+      cell("Coverage", dongs.length, "neighborhoods in scope"),
+      "RHSI only · negative = lower hot-day retail sales · association, not causation.");
+  }
+  if (datasetId === "weather") {
+    const s = Atlas.dailySeries(scope).filter((d) => Number.isFinite(d.temp));
+    const temps = s.map((d) => d.temp), max = temps.length ? Math.max(...temps) : null;
+    const avg = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : null;
+    return wrap("Daily weather summary", "Daily maximum temperature observations for the selected geography.",
+      cell("Peak temperature", max == null ? "—" : `${max.toFixed(1)}°C`, "maximum in 2024", true) +
+      cell("Mean daily max", avg == null ? "—" : `${avg.toFixed(1)}°C`, "2024 average") +
+      cell("Observations", s.length, "daily records") +
+      cell("Period", "2024", "calendar year"),
+      "Temperature series only; hot/mild classification is shown in its derived-feature dataset.");
+  }
+  if (datasetId === "heatfeature" || datasetId === "heatdays") {
+    return wrap(datasetId === "heatdays" ? "Heat-day count summary" : "Heat classification summary",
+      "Days classified from the UHUS apparent-temperature thresholds.",
+      cell("Extreme-heat days", days.hot, "apparent temperature ≥ 33°C", true) +
+      cell("Mild days", days.mild, "18–26°C, dry, non-holiday") +
+      cell("Coverage", dongs.length, "neighborhoods in scope") +
+      cell("Threshold", "33°C", "apparent temperature"),
+      "Classification and qualifying-day counts only.");
+  }
+  if (datasetId === "sales" || datasetId === "sectorprofile") {
+    const m = Atlas.mostSensitiveIndustry(scope);
+    const groups = Atlas.retailGroupHeatResponse(scope).filter((g) => g.mild != null);
+    const mild = groups.reduce((s, g) => s + g.mild, 0), hot = groups.reduce((s, g) => s + g.hot, 0);
+    const change = mild > 0 ? (hot - mild) / mild : null;
+    return wrap(datasetId === "sectorprofile" ? "Sector profile summary" : "Sales response summary",
+      "Hot-day and mild-day card sales within the selected sales scope.",
+      cell("Most sensitive", m ? m.label : "—", m ? `${(m.sensitivity * 100).toFixed(1)}%` : "no value", true) +
+      cell("Retail change", change == null ? "—" : `${change >= 0 ? "+" : ""}${(change * 100).toFixed(1)}%`, "hot vs mild", false, change) +
+      cell("Retail groups", groups.length, "groups with observations") +
+      cell("Geography", scopeSub(scope), "active sales scope"),
+      "Sales and sector statistics only.");
+  }
+  if (datasetId === "salesfeature") {
+    const groups = Atlas.retailGroupHeatResponse(scope).filter((g) => g.mild != null);
+    const total = groups.reduce((s, g) => s + g.mild, 0) || 1;
+    const top = groups.slice().sort((a, b) => b.mild - a.mild)[0];
+    return wrap("Sales composition summary", "Retail composition features derived from sector shares.",
+      cell("Largest group", top ? top.name : "—", top ? `${(top.mild / total * 100).toFixed(1)}% of mild-day retail` : "no value", true) +
+      cell("Retail share", mean("retail_share") == null ? "—" : `${(mean("retail_share") * 100).toFixed(1)}%`, "share of all-sector sales") +
+      cell("Feature groups", groups.length, "retail composition groups") +
+      cell("Coverage", dongs.length, "neighborhoods in scope"),
+      "Composition ratios only; this section does not display weather or SHAP results.");
+  }
+  if (datasetId === "context") {
+    return wrap("Urban context summary", "Built environment, demographic, accessibility, and land-use variables.",
+      cell("Context variables", URBAN_FEATURE_KEYS.filter((k) => !SALES_SHARE_KEYS.has(k) && k !== "delta_daypop").length, "non-sales context fields", true) +
+      cell("Coverage", dongs.length, "neighborhoods in scope") +
+      cell("Land-use fields", 7, "residential, commercial, green, etc.") +
+      cell("Green space", mean("green_space_share") == null ? "—" : `${(mean("green_space_share") * 100).toFixed(1)}%`, "mean share in scope"),
+      "Urban feature values only; RHSI association and SHAP attribution are shown in their own datasets.");
+  }
+  if (datasetId === "mobility") {
+    const dd = mean("delta_daypop"), dnpr = mean("dnpr");
+    return wrap("Mobility summary", "Day/night population structure and hot-versus-mild daytime-population response.",
+      cell("Δ Day population", hsiPct(dd), "hot vs mild log-ratio", true, dd) +
+      cell("Day/night ratio", dnpr == null ? "—" : dnpr.toFixed(2), "mean DNPR") +
+      cell("Mobility fields", 2, "DNPR and Δ day population") +
+      cell("Coverage", dongs.length, "neighborhoods in scope"),
+      "Mobility variables only; associations with RHSI are exploratory.");
+  }
+  if (datasetId === "dongbase" || datasetId === "geometry") {
+    const guCount = new Set(dongs.map((d) => d.gu_code)).size;
+    return wrap(datasetId === "geometry" ? "Geometry coverage" : "Administrative coverage",
+      "Administrative units available for joining and map rendering.",
+      cell("Dongs", dongs.length, "neighborhood records", true) +
+      cell("Districts", guCount, "gu represented") +
+      cell("Join key", "dong_code", "primary spatial key") +
+      cell("Geometry", datasetId === "geometry" ? "Polygon" : "Lookup", "dataset role"),
+      "Administrative coverage only; no outcome or model metrics.");
+  }
+  if (datasetId === "atlas") {
+    return wrap("Combined atlas view", "Integrated map view of the UHUS project datasets.",
+      cell("Dongs", dongs.length, "active spatial coverage", true) +
+      cell("Districts", new Set(dongs.map((d) => d.gu_code)).size, "gu represented") +
+      cell("Period", "2024", "daily weather and sales") +
+      cell("Primary index", "RHSI", "retail heat response"),
+      "Combined-view metadata; full cross-dataset findings remain in the UHUS project overview.");
+  }
+  return "";
+}
+
 // ============ EDITORIAL-SCIENTIFIC FIGURES (Insights column) ============
 // Muted, report-style palette (navy/amber/rose + grey) over the night theme.
 // Palette drawn from the interface theme tokens so the figures match the UI.
@@ -435,8 +577,96 @@ function figRhsiDistribution(el, scope) {
     xAxis: { type: "category", data: bins.map((b) => b.x0.toFixed(2)), axisLabel: { color: ED.muted, fontSize: 8, interval: 5 }, ...EDAXIS },
     yAxis: { type: "value", ...EDAXIS },
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...EDTIP, formatter: (p) => `RHSI ≈ ${p[0].axisValue}<br/>${p[0].value} dongs` },
-    series: [{ type: "bar", barCategoryGap: "18%", data: bins.map((b) => ({ value: b.count, itemStyle: { color: b.sensitive ? ED.rose : ED.blue } })),
+    series: [{ type: "bar", barCategoryGap: "18%", data: bins.map((b) => ({ value: b.count, itemStyle: { color: b.sensitive ? ED.blue : ED.rose } })),
       markLine: { silent: true, symbol: "none", data: markData } }],
+  });
+  return c;
+}
+
+// RHSI-only district comparison.
+function figRhsiDistrictRanking(el, scope) {
+  const c = edInit(el, 190);
+  const selected = scope.guCode || null;
+  const rows = Atlas.guMetrics.slice().sort((a, b) => a.RHSI_retail - b.RHSI_retail);
+  c.setOption({
+    grid: { left: 82, right: 34, top: 7, bottom: 22 },
+    xAxis: { type: "value", ...EDAXIS, axisLabel: { color: ED.muted, fontSize: 8 } },
+    yAxis: { type: "category", data: rows.map((r) => r.gu_name.replace("-gu", "")), axisLabel: { color: ED.muted, fontSize: 8, interval: 1 }, axisLine: { show: false }, axisTick: { show: false } },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...EDTIP, formatter: (p) => `${p[0].axisValue}<br/>RHSI ${(+p[0].value).toFixed(3)}` },
+    series: [{ type: "bar", barWidth: "62%", data: rows.map((r) => ({ value: r.RHSI_retail,
+      itemStyle: { color: r.gu_code === selected ? ED.amber : (r.RHSI_retail < 0 ? ED.blue : ED.rose), borderRadius: 2 } })),
+      markLine: { silent: true, symbol: "none", data: [{ xAxis: 0 }], lineStyle: { color: "rgba(255,255,255,0.2)", type: "dashed" } } }],
+  });
+  return c;
+}
+
+// Context-only association chart: always Pearson r, never SHAP.
+function figContextAssociations(el) {
+  const c = edInit(el, 185);
+  const rows = Atlas.rhsiCorrelations(10).slice().reverse();
+  c.setOption({
+    grid: { left: 124, right: 40, top: 6, bottom: 8 },
+    xAxis: { type: "value", min: -1, max: 1, ...EDAXIS, axisLabel: { color: ED.muted, fontSize: 8 } },
+    yAxis: { type: "category", data: rows.map((r) => r.label), axisLabel: { color: ED.muted, fontSize: 8.5 }, axisLine: { show: false }, axisTick: { show: false } },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...EDTIP, formatter: (p) => `${p[0].axisValue}<br/>Pearson r ${p[0].value >= 0 ? "+" : ""}${(+p[0].value).toFixed(2)}` },
+    series: [{ type: "bar", barWidth: "55%", data: rows.map((r) => ({ value: r.r,
+      itemStyle: { color: r.r < 0 ? ED.blue : ED.rose, borderRadius: 2 } })),
+      label: { show: true, position: "right", color: ED.muted, fontSize: 8, formatter: (p) => `${p.value >= 0 ? "+" : ""}${(+p.value).toFixed(2)}` } }],
+  });
+  return c;
+}
+
+// Urban Features view: profile the baseline context variables themselves. This
+// deliberately avoids RHSI correlation and SHAP attribution.
+function figContextProfile(el, scope) {
+  const c = edInit(el, 205);
+  const city = { level: "city", guCode: null, dongCode: null };
+  const keys = [
+    "land_price", "subway_access_coverage", "bus_stop_density", "green_space_share",
+    "commercial_area_share", "residential_area_share", "activity_facility_density",
+    "aged_housing_share", "parking_capacity", "elderly_share", "low_income_share", "dnpr",
+  ];
+  const avgNorm = (s, key) => {
+    const dongs = s.level === "dong" ? [Atlas.dongByCode.get(s.dongCode)].filter(Boolean) : Atlas.dongsInScope(s);
+    const vals = dongs.map((d) => Atlas._normFeat(d, key)).filter((v) => Number.isFinite(v));
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  };
+  const rows = keys.map((k) => ({
+    key: k,
+    label: URBAN_FEATURE_LABELS[k] || k,
+    scope: avgNorm(scope, k),
+    city: avgNorm(city, k),
+  })).filter((r) => r.scope != null && r.city != null)
+    .sort((a, b) => Math.abs(b.scope - b.city) - Math.abs(a.scope - a.city))
+    .slice(0, 8).reverse();
+  c.setOption({
+    grid: { left: 126, right: 16, top: 24, bottom: 22 },
+    legend: { data: ["This scope", "Seoul avg"], top: 0, right: 0, textStyle: { color: ED.muted, fontSize: 9 }, itemWidth: 9, itemHeight: 9 },
+    xAxis: { type: "value", min: 0, max: 1, ...EDAXIS, axisLabel: { color: ED.muted, fontSize: 8, formatter: (v) => v.toFixed(1) } },
+    yAxis: { type: "category", data: rows.map((r) => r.label), axisLabel: { color: ED.muted, fontSize: 8.5 }, axisLine: { show: false }, axisTick: { show: false } },
+    tooltip: { trigger: "axis", ...EDTIP, formatter: (p) => `${p[0].axisValue}<br/>This scope: ${(+p[0].value).toFixed(2)}<br/>Seoul avg: ${(+p[1].value).toFixed(2)}` },
+    series: [
+      { name: "This scope", type: "bar", barWidth: "46%", data: rows.map((r) => +r.scope.toFixed(3)), itemStyle: { color: ED.amber, borderRadius: 2 } },
+      { name: "Seoul avg", type: "bar", barWidth: "46%", data: rows.map((r) => +r.city.toFixed(3)), itemStyle: { color: "rgba(125,167,255,0.45)", borderRadius: 2 } },
+    ],
+  });
+  return c;
+}
+
+// Administrative/geometry coverage by district.
+function figAdministrativeCoverage(el, scope) {
+  const c = edInit(el, 190);
+  const selected = scope.guCode || null;
+  const counts = new Map();
+  Atlas.dongMetrics.forEach((d) => counts.set(d.gu_code, (counts.get(d.gu_code) || 0) + 1));
+  const rows = Atlas.guMetrics.map((g) => ({ ...g, count: counts.get(g.gu_code) || 0 })).sort((a, b) => b.count - a.count);
+  c.setOption({
+    grid: { left: 82, right: 28, top: 7, bottom: 22 },
+    xAxis: { type: "value", ...EDAXIS, axisLabel: { color: ED.muted, fontSize: 8, precision: 0 } },
+    yAxis: { type: "category", data: rows.map((r) => r.gu_name.replace("-gu", "")), axisLabel: { color: ED.muted, fontSize: 8, interval: 1 }, axisLine: { show: false }, axisTick: { show: false } },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...EDTIP, formatter: (p) => `${p[0].axisValue}<br/>${p[0].value} dongs` },
+    series: [{ type: "bar", barWidth: "62%", data: rows.map((r) => ({ value: r.count,
+      itemStyle: { color: r.gu_code === selected ? ED.amber : ED.grey, borderRadius: 2 } })) }],
   });
   return c;
 }
@@ -454,8 +684,82 @@ function figHeatDrivers(el, scope) {
     xAxis: { type: "value", ...EDAXIS, axisLabel: { show: false }, splitLine: { show: false } },
     yAxis: { type: "category", data: rows.map((r) => r.label), axisLabel: { color: ED.muted, fontSize: 9 }, axisLine: { show: false }, axisTick: { show: false } },
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...EDTIP, formatter: (p) => `${p[0].axisValue}<br/>${rows[p[0].dataIndex].fmt(p[0].value)}` },
-    series: [{ type: "bar", barWidth: "56%", data: rows.map((r) => ({ value: +r.v.toFixed(4), itemStyle: { color: r.v < 0 ? ED.rose : ED.blue, borderRadius: [0, 2, 2, 0] } })),
+    series: [{ type: "bar", barWidth: "56%", data: rows.map((r) => ({ value: +r.v.toFixed(4), itemStyle: { color: r.v < 0 ? ED.blue : ED.rose, borderRadius: [0, 2, 2, 0] } })),
       label: { show: true, position: "right", color: ED.muted, fontSize: 8.5, formatter: (p) => rows[p.dataIndex].fmt(p.value) } }],
+  });
+  return c;
+}
+
+// SHAP importance uses magnitude for city/gu and signed local contributions for
+// a dong. Keeping these encodings separate avoids signed-mean cancellation.
+function figShapImportance(el, scope) {
+  const c = edInit(el, 205);
+  const local = scope.level === "dong";
+  let rows = local
+    ? Atlas.signedDrivers(scope.dongCode, 10).map((r) => ({ label: r.label, v: r.value }))
+    : Atlas.featureImportance(scope, 10).map((r) => ({ label: r.label, v: r.importance }));
+  rows = rows.slice().reverse();
+  c.setOption({
+    grid: { left: 124, right: 46, top: 6, bottom: 8 },
+    xAxis: { type: "value", ...EDAXIS, axisLabel: { show: false }, splitLine: { show: false } },
+    yAxis: { type: "category", data: rows.map((r) => r.label), axisLabel: { color: ED.muted, fontSize: 8.5 }, axisLine: { show: false }, axisTick: { show: false } },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...EDTIP,
+      formatter: (p) => `${p[0].axisValue}<br/>${local ? "SHAP" : "mean |SHAP|"}: ${p[0].value >= 0 && local ? "+" : ""}${(+p[0].value).toFixed(4)}` },
+    series: [{ type: "bar", barWidth: "56%", data: rows.map((r) => ({
+      value: +r.v.toFixed(5),
+      itemStyle: { color: local ? (r.v < 0 ? ED.blue : ED.rose) : ED.amber, borderRadius: 2 },
+    })), label: { show: true, position: "right", color: ED.muted, fontSize: 8,
+      formatter: (p) => `${local && p.value >= 0 ? "+" : ""}${(+p.value).toFixed(3)}` } }],
+  });
+  return c;
+}
+
+// Model-dependence plot: raw feature value on x, that feature's SHAP value on y.
+function figShapDependence(el, scope, key) {
+  const c = edInit(el, 178);
+  const pts = Atlas.shapDependence(key);
+  const selected = scope.level === "dong" ? scope.dongCode : null;
+  const label = URBAN_FEATURE_LABELS[key] || key;
+  c.setOption({
+    grid: { left: 43, right: 14, top: 12, bottom: 31 },
+    xAxis: { type: "value", ...EDAXIS, name: label, nameLocation: "middle", nameGap: 21, nameTextStyle: { color: ED.muted, fontSize: 8.5 } },
+    yAxis: { type: "value", ...EDAXIS, name: "SHAP", nameTextStyle: { color: ED.muted, fontSize: 8.5 } },
+    tooltip: { ...EDTIP, formatter: (p) => `${p.data.name}<br/>${label}: ${(+p.data.value[0]).toFixed(3)}<br/>SHAP: ${(+p.data.value[1]).toFixed(4)}` },
+    series: [{
+      type: "scatter",
+      data: pts.map((p) => ({ value: [p.x, p.y], name: p.dong_name, dong: p.dong_code })),
+      symbolSize: (v, p) => p.data.dong === selected ? 13 : 5,
+      itemStyle: {
+        color: (p) => p.data.dong === selected ? ED.amber : (p.data.value[1] < 0 ? "rgba(228,92,145,0.42)" : "rgba(125,167,255,0.42)"),
+        borderColor: (p) => p.data.dong === selected ? "#fff" : "transparent", borderWidth: 1,
+      },
+      markLine: { silent: true, symbol: "none", data: [{ yAxis: 0 }], lineStyle: { color: "rgba(255,255,255,0.18)", type: "dashed" } },
+    }],
+  });
+  return c;
+}
+
+// Quartile view of contribution heterogeneity. A selected dong is overlaid as
+// an amber point against the citywide distribution.
+function figShapDistributions(el, scope) {
+  const c = edInit(el, 185);
+  const distScope = scope.level === "dong" ? { level: "city", guCode: null, dongCode: null } : scope;
+  const rows = Atlas.shapFeatureDistributions(distScope, 6).slice().reverse();
+  const rec = scope.level === "dong" ? Atlas.dongByCode.get(scope.dongCode) : null;
+  const selected = rec ? rows.map((r, i) => {
+    const v = rec["shap_" + r.key];
+    return Number.isFinite(v) ? { value: [v, i], name: r.label } : null;
+  }).filter(Boolean) : [];
+  c.setOption({
+    grid: { left: 124, right: 18, top: 8, bottom: 24 },
+    xAxis: { type: "value", ...EDAXIS, name: "SHAP contribution", nameLocation: "middle", nameGap: 18, nameTextStyle: { color: ED.muted, fontSize: 8.5 } },
+    yAxis: { type: "category", data: rows.map((r) => r.label), axisLabel: { color: ED.muted, fontSize: 8.5 }, axisLine: { show: false }, axisTick: { show: false } },
+    tooltip: { trigger: "item", ...EDTIP },
+    series: [
+      { name: "Distribution", type: "boxplot", data: rows.map((r) => r.stats.map((v) => +v.toFixed(5))),
+        itemStyle: { color: "rgba(125,167,255,0.18)", borderColor: ED.blue }, boxWidth: [7, 15] },
+      { name: "Selected dong", type: "scatter", data: selected, symbolSize: 8, itemStyle: { color: ED.amber, borderColor: "#fff", borderWidth: 1 } },
+    ],
   });
   return c;
 }
@@ -504,7 +808,7 @@ function figIndustryResponse(el, scope) {
     xAxis: { type: "value", ...EDAXIS, axisLabel: { show: false }, splitLine: { show: false } },
     yAxis: { type: "category", data: rows.map((r) => r.label), axisLabel: { color: ED.muted, fontSize: 9 }, axisLine: { show: false }, axisTick: { show: false } },
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...EDTIP, formatter: (p) => `${p[0].axisValue}<br/>${(p[0].value * 100).toFixed(1)}% on hot days` },
-    series: [{ type: "bar", barWidth: "58%", data: rows.map((r) => ({ value: +r.sensitivity.toFixed(4), itemStyle: { color: r.sensitivity < 0 ? ED.rose : ED.green, borderRadius: 2 } })),
+    series: [{ type: "bar", barWidth: "58%", data: rows.map((r) => ({ value: +r.sensitivity.toFixed(4), itemStyle: { color: r.sensitivity < 0 ? ED.blue : ED.rose, borderRadius: 2 } })),
       label: { show: true, position: "right", color: ED.muted, fontSize: 8.5, formatter: (p) => (p.value >= 0 ? "+" : "") + (p.value * 100).toFixed(0) + "%" } }],
   });
   return c;
@@ -577,6 +881,9 @@ function insightsFigures(scope, datasetId) {
   const isRegion = scope.level !== "city";
   const where = isRegion ? scopeSub(scope) : "Seoul";
   const rscope = isRegion ? scope : city;
+  const selectedHeightKey = (typeof map !== "undefined" && map && Atlas.metricSpec(map.heightBy))
+    ? map.heightBy
+    : "land_price";
 
   // ---- individual figure specs (reused across dataset sets) ----
   const S = {};
@@ -584,11 +891,18 @@ function insightsFigures(scope, datasetId) {
     const dongs = Atlas.dongMetrics, pctNeg = Math.round(dongs.filter((d) => d.RHSI_retail < 0).length / dongs.length * 100);
     let f = `Across all <b>${dongs.length}</b> neighborhoods, <b>${pctNeg}%</b> have a <span class="hot">negative RHSI</span> — retail sales fall on extreme-heat days.`;
     if (isRegion) { const rv = Atlas.retailHSI(scope); f = `<b>${where}</b> sits at RHSI <b>${rv == null ? "—" : rv.toFixed(2)}</b> — ${rv < 0 ? '<span class="hot">more heat-sensitive</span>' : '<span class="cool">more resilient</span>'} than most of Seoul (amber marker).`; }
-    return { title: "Most of Seoul's retail is heat-sensitive", finding: f, caption: "RHSI = log(hot-day ÷ mild-day retail sales) per dong · rose = sales fall, blue = rise.", render: (el) => figRhsiDistribution(el, scope) };
+    return { title: "Most of Seoul's retail is heat-sensitive", finding: f, caption: "RHSI = log(hot-day ÷ mild-day retail sales) per dong · blue = sales fall, rose = rise.", render: (el) => figRhsiDistribution(el, scope) };
+  };
+  S.rhsiRanking = () => {
+    const selected = scope.guCode ? Atlas.guByCode.get(scope.guCode) : null;
+    return { title: "RHSI by district",
+      finding: selected ? `<b>${selected.gu_name}</b> is highlighted against all 25 district RHSI averages.` : "District averages reveal where lower hot-day retail sales are most concentrated.",
+      caption: "District mean RHSI only · blue = negative · rose = positive.",
+      render: (el) => figRhsiDistrictRanking(el, scope) };
   };
   S.drivers = () => {
     const drv = Atlas.rhsiCorrelations(8);
-    const f = isRegion ? `The urban features pushing <b>${where}</b>'s heat sensitivity up (blue) and down (rose).`
+    const f = isRegion ? `The urban features pushing <b>${where}</b>'s predicted RHSI up (rose) and down (blue).`
       : `<b>${drv[0].label}</b> tracks RHSI most strongly (r ${drv[0].r >= 0 ? "+" : ""}${drv[0].r.toFixed(2)}), then ${drv[1].label} and ${drv[2].label}.`;
     return { title: isRegion ? "Why this place responds to heat" : "What drives heat sensitivity", finding: f, caption: isRegion ? (scope.level === "dong" ? "Per-dong SHAP contribution to RHSI." : "Mean SHAP contribution across the district's dongs.") : "Pearson correlation of urban characteristics with RHSI, 422 dongs.", render: (el) => figHeatDrivers(el, scope) };
   };
@@ -598,7 +912,7 @@ function insightsFigures(scope, datasetId) {
   };
   S.heatExposure = () => {
     const days = Atlas.heatDayCounts(rscope);
-    return { title: "Heat exposure across 2024", finding: `${where} saw about <b>${days.hot}</b> <span class="hot">extreme-heat days</span> against <b>${days.mild}</b> mild baseline days, concentrated in mid-summer.`, caption: "Daily maximum temperature over 2024 · dashed line = 33°C heat threshold.", render: (el) => figHeatExposure(el, rscope) };
+    return { title: "Heat exposure across 2024", finding: `${where} saw about <b>${days.hot}</b> <span class="heat">extreme-heat days</span> against <b>${days.mild}</b> mild baseline days, concentrated in mid-summer.`, caption: "Daily maximum temperature over 2024 · dashed line = 33°C heat threshold.", render: (el) => figHeatExposure(el, rscope) };
   };
   S.industry = () => {
     const rank = Atlas.industryRanking(rscope, 5), w = rank.losers[0], b = rank.winners[0];
@@ -606,7 +920,7 @@ function insightsFigures(scope, datasetId) {
   };
   S.dayCounts = () => {
     const days = Atlas.heatDayCounts(rscope);
-    return { title: "How many extreme-heat days?", finding: `Dongs averaged about <b>${days.hot}</b> <span class="hot">days ≥ 33°C</span> in 2024 — exposure varies across the city.`, caption: "Distribution of extreme-heat day counts across dongs.", render: (el) => figHeatDayCounts(el, rscope) };
+    return { title: "How many extreme-heat days?", finding: `Dongs averaged about <b>${days.hot}</b> <span class="heat">days ≥ 33°C</span> in 2024 — exposure varies across the city.`, caption: "Distribution of extreme-heat day counts across dongs.", render: (el) => figHeatDayCounts(el, rscope) };
   };
   S.retailComposition = () => ({ title: "What retail is here", finding: `The mix of retail sales by group — its balance shapes how sensitive the area is to heat.`, caption: "Share of mild-day retail sales by group.", render: (el) => figComposition(el, rscope, "retail") });
   S.landComposition = () => ({ title: "How the land is used", finding: `Land-use mix — commercial and green space both correlate with heat response.`, caption: "Share of land area by use (dong average).", render: (el) => figComposition(el, rscope, "landuse") });
@@ -614,19 +928,66 @@ function insightsFigures(scope, datasetId) {
     const label = (typeof URBAN_FEATURE_LABELS !== "undefined" && URBAN_FEATURE_LABELS[key]) || key;
     return { title: `${label} vs heat sensitivity`, finding: `How <b>${label}</b> relates to RHSI across the 422 dongs${isRegion ? " (this place highlighted)" : ""}.`, caption: `Each point is a dong · x = ${label}, y = RHSI.`, render: (el) => figFeatureVsRhsi(el, scope, key) };
   };
+  S.contextAssociations = () => {
+    const top = Atlas.rhsiCorrelations(1)[0];
+    return { title: "Model-input associations",
+      finding: top ? `<b>${top.label}</b> has the strongest citywide linear association with RHSI (r ${top.r >= 0 ? "+" : ""}${top.r.toFixed(2)}).` : "Model-input associations with RHSI.",
+      caption: "Pearson correlation across 422 dongs · raw association before SHAP attribution, not causality.",
+      render: (el) => figContextAssociations(el) };
+  };
+  S.contextProfile = () => ({ title: "Urban feature profile",
+    finding: isRegion ? `<b>${where}</b>'s baseline urban features compared with the Seoul average.` : "Citywide baseline urban features shown on a normalized 0–1 scale.",
+    caption: "Min-max normalized feature values · excludes sales composition, heat-response mobility, RHSI, and SHAP.",
+    render: (el) => figContextProfile(el, scope) });
+  S.adminCoverage = () => ({ title: "Administrative coverage by district",
+    finding: "The number of administrative dongs represented in each district.",
+    caption: "Record count by gu · geometry and lookup coverage only.",
+    render: (el) => figAdministrativeCoverage(el, scope) });
+  S.shapImportance = () => {
+    const local = scope.level === "dong";
+    const top = local ? Atlas.signedDrivers(scope.dongCode, 1)[0] : Atlas.featureImportance(scope, 1)[0];
+    const finding = !top ? "No SHAP explanation is available for this scope."
+      : local
+        ? `<b>${top.label}</b> has the largest local contribution (${top.value >= 0 ? "+" : ""}${top.value.toFixed(3)}) to the model's predicted RHSI.`
+        : `<b>${top.label}</b> is the most influential model input in ${where}, ranked by mean absolute SHAP.`;
+    return { title: local ? "What moves this prediction" : "Global SHAP importance", finding,
+      caption: local ? "Signed local SHAP · rose raises predicted RHSI · blue lowers it." : "Mean absolute SHAP · magnitude shows model importance, not direction or causality.",
+      render: (el) => figShapImportance(el, scope) };
+  };
+  S.shapDependence = () => {
+    const local = scope.level === "dong";
+    const top = local ? Atlas.signedDrivers(scope.dongCode, 1)[0] : Atlas.featureImportance(scope, 1)[0];
+    const key = top ? top.key : "delta_daypop";
+    const label = URBAN_FEATURE_LABELS[key] || key;
+    return { title: `${label}: model response`, finding: `How the observed <b>${label}</b> value relates to its SHAP contribution across Seoul${local ? " (selected dong in amber)" : ""}.`,
+      caption: "x = observed feature value · y = contribution to predicted RHSI · this is model behavior, not a causal effect.",
+      render: (el) => figShapDependence(el, scope, key) };
+  };
+  S.shapSpread = () => {
+    const distScope = scope.level === "dong" ? city : scope;
+    const top = Atlas.shapFeatureDistributions(distScope, 1)[0];
+    const share = top && top.positiveShare != null ? Math.round(top.positiveShare * 100) : null;
+    return { title: "Contribution spread across neighborhoods",
+      finding: top ? `<b>${top.label}</b> contributes positively in ${share}% of neighborhoods in this comparison scope; the box shows how strongly direction and magnitude vary.` : "Distribution of SHAP contributions.",
+      caption: `Box = min, quartiles, median, max${scope.level === "dong" ? " · amber = selected dong" : ""} · variation is hidden by a signed average.`,
+      render: (el) => figShapDistributions(el, scope) };
+  };
 
   // ---- dataset-specific sets (2–3 each); whole project = the full 5 ----
   let picks;
   switch (datasetId) {
-    case "rhsi": picks = [S.distribution(), S.drivers()]; break;
-    case "context": picks = [S.drivers(), S.scatter("land_price"), S.landComposition()]; break;
-    case "mobility": picks = [S.scatter("delta_daypop"), S.drivers()]; break;
+    case "shap": picks = [S.contextAssociations(), S.shapImportance(), S.shapDependence(), S.shapSpread()]; break;
+    case "rhsi": picks = [S.distribution(), S.rhsiRanking()]; break;
+    case "context": picks = [S.contextProfile(), S.scatter(selectedHeightKey), S.landComposition()]; break;
+    case "mobility": picks = [S.scatter("delta_daypop"), S.scatter("dnpr")]; break;
     case "sales": case "sectorprofile": picks = [S.industry(), S.hotVsMild()]; break;
-    case "salesfeature": picks = [S.retailComposition(), S.hotVsMild()]; break;
-    case "weather": case "heatfeature": picks = [S.heatExposure(), S.dayCounts()]; break;
-    case "heatdays": picks = [S.dayCounts(), S.heatExposure()]; break;
-    case "dongbase": case "geometry": picks = [S.distribution()]; break;
-    default: picks = [S.distribution(), S.drivers(), S.hotVsMild(), S.heatExposure(), S.industry()];
+    case "salesfeature": picks = [S.retailComposition()]; break;
+    case "weather": picks = [S.heatExposure()]; break;
+    case "heatfeature": case "heatdays": picks = [S.dayCounts()]; break;
+    case "dongbase": case "geometry": picks = [S.adminCoverage()]; break;
+    case "atlas": picks = []; break;
+    case null: picks = [S.distribution(), S.drivers(), S.hotVsMild(), S.heatExposure(), S.industry()]; break;
+    default: picks = [];
   }
   return picks.map((p, i) => ({ ...p, kicker: `FIGURE ${i + 1}` }));
 }

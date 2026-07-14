@@ -36,7 +36,9 @@ async function initDashboard() {
   renderBreadcrumb();
   initSelectBox();
   updateLegend();
+  initSectorView();
   initNavOverlay();
+  initTour();
   initFooter();
   refreshVariableDropdowns(); // scope the variable dropdowns to the current dataset
   Insights.init();
@@ -62,22 +64,14 @@ function navPanelContent(key) {
       <div class="compact-row" data-action="map"><span>View Map</span></div>`;
   }
   if (key === "library") {
-    // Project-first tree. data-detail ids map to Panels DATASETS_META keys.
+    // Same source-file tree as the panel Library — both driven by DATASET_CATALOG.
+    const cat = (typeof DATASET_CATALOG !== "undefined") ? DATASET_CATALOG : [];
     return `<div class="mc-title">PROJECTS</div>
       <div class="project-row active" data-detail="project_uhus">UHUS</div>
       <div class="lib-tree">
-        <div class="folder-head">Input Datasets</div>
-        <div class="dataset-row" data-detail="weather"><span>Daily_Weather.csv</span><span class="ftype">csv</span></div>
-        <div class="dataset-row" data-detail="sales"><span>Sales.csv</span><span class="ftype">csv</span></div>
-        <div class="dataset-row" data-detail="geometry"><span>Dong_Geometry.geojson</span><span class="ftype">geojson</span></div>
-        <div class="folder-head">Feature Datasets</div>
-        <div class="dataset-row" data-detail="context"><span>Urban_Features.csv</span><span class="ftype">csv</span></div>
-        <div class="dataset-row" data-detail="salesfeature"><span>Sales Theme Groups</span><span class="ftype">group</span></div>
-        <div class="folder-head">Index Datasets</div>
-        <div class="dataset-row" data-detail="rhsi"><span>RHSI.csv</span><span class="ftype">csv</span></div>
-        <div class="folder-head">View Layers</div>
-        <div class="dataset-row" data-detail="atlas"><span>Combined Atlas View</span><span class="ftype">view</span></div>
-        <div class="dataset-row" data-detail="sectorprofile"><span>Sector Profile View</span><span class="ftype">view</span></div>
+        ${cat.map((g) => `
+        <div class="folder-head">${g.role}</div>
+        ${g.items.map((d) => `<div class="dataset-row" data-detail="${d.open}"><span>${d.file}</span><span class="ftype">${(d.file.split(".").pop() || "").toLowerCase()}</span></div>`).join("")}`).join("")}
       </div>`;
   }
   if (key === "saved") {
@@ -96,9 +90,8 @@ function navPanelContent(key) {
 }
 
 // Library selection → right panel Detail tab + drive the map (via the CTA).
+// renderProject / renderDatasetDetail switch to the Detail tab themselves.
 function openDatasetFromLibrary(id) {
-  const detailTab = [...document.querySelectorAll(".uhus-panel-tab")].find((t) => /detail/i.test(t.textContent));
-  if (detailTab) detailTab.click();
   if (typeof Panels === "undefined") return;
   if (id === "project_uhus") { Panels.renderProject(); return; }
   Panels.renderDatasetDetail(id);
@@ -136,21 +129,231 @@ function initNavOverlay() {
       bindNavContent();
     }
     panel.classList.add("show");
+    syncPinned();
   }
-  function hidePanel() { panel.classList.remove("show"); navItems.forEach((b) => b.classList.remove("active")); }
+  function syncPinned() { document.getElementById("map-stage")?.classList.toggle("panel-pinned", !!pinned); }
+  function hidePanel() { panel.classList.remove("show"); navItems.forEach((b) => b.classList.remove("active")); syncPinned(); }
   function restore() { if (hoveringNav || hoveringPanel) return; if (pinned) showPanel(pinned, "pinned"); else hidePanel(); }
 
   navItems.forEach((btn) => {
     const key = btn.dataset.nav;
-    btn.addEventListener("mouseenter", () => { hoveringNav = true; showPanel(key, pinned === key ? "pinned" : "hover"); });
+    btn.addEventListener("mouseenter", () => { if (key === "overview") return; hoveringNav = true; showPanel(key, pinned === key ? "pinned" : "hover"); });
     btn.addEventListener("mouseleave", () => { hoveringNav = false; setTimeout(restore, 110); });
-    btn.addEventListener("click", () => { if (pinned === key) { pinned = null; hidePanel(); return; } pinned = key; showPanel(key, "pinned"); });
+    btn.addEventListener("click", () => {
+      // Overview toggles the functional auto-demo (which pins the Map controls itself).
+      if (key === "overview") {
+        if (typeof Tour !== "undefined" && Tour.playing) { Tour.stop(); return; }
+        pinned = null; hidePanel(); syncPinned();
+        if (typeof Tour !== "undefined") Tour.start();
+        return;
+      }
+      // Any other nav interaction takes over from the demo.
+      if (typeof Tour !== "undefined" && Tour.playing) Tour.stop();
+      if (pinned === key) { pinned = null; hidePanel(); return; }
+      pinned = key; showPanel(key, "pinned");
+    });
   });
+
+  // Small API so the auto-demo can pin/unpin the Map control flyout WITHOUT firing
+  // the nav click handler above (which would immediately stop the demo).
+  window.AtlasNav = {
+    pinMap() { pinned = "map"; showPanel("map", "pinned"); },
+    unpin() { pinned = null; hidePanel(); },
+  };
   panel.addEventListener("mouseenter", () => { hoveringPanel = true; });
   panel.addEventListener("mouseleave", () => { hoveringPanel = false; setTimeout(restore, 110); });
 
   hidePanel(); // initial state: no floating panel visible (per spec)
 }
+
+// ---------- Overview: functional auto-demo (no narration) ----------
+// Clicking Overview loops through every UHUS dataset and, for each, drives the REAL
+// controls: applies the dataset's best representation, cycles a few key variables,
+// then walks the map selection (Seoul → Gu → Dong). No subtitles — it just exercises
+// the features. Blur-focus is used only for the brief per-dataset Detail card beat
+// (when the map isn't the point); every map beat keeps the whole dashboard sharp so
+// the controls, dropdowns, legend and map all read together.
+const Tour = {
+  playing: false, _timer: null, _beats: null, _bi: 0,
+
+  // ---- spotlight helpers (blur only the Detail-card beats) ----
+  _targets() {
+    return {
+      detail: document.querySelector(".panel-wrap"),
+      insights: document.querySelector(".insights-view"),
+      map: document.getElementById("map-stage"),
+    };
+  },
+  _chrome() {
+    return [".topbar", ".side-nav", "#timeline", "#uhus-footer"]
+      .map((s) => document.querySelector(s)).filter(Boolean);
+  },
+  setFocus(key) {
+    const t = this._targets();
+    Object.keys(t).forEach((k) => {
+      const el = t[k]; if (!el) return;
+      if (k === key) { el.classList.remove("tour-blur"); el.classList.add("tour-focus"); }
+      else { el.classList.remove("tour-focus"); el.classList.add("tour-blur"); }
+    });
+    this._chrome().forEach((el) => el.classList.add("tour-blur"));
+  },
+  clearFocus() {
+    const t = this._targets();
+    Object.keys(t).forEach((k) => { if (t[k]) t[k].classList.remove("tour-blur", "tour-focus"); });
+    this._chrome().forEach((el) => el.classList.remove("tour-blur"));
+  },
+
+  // Ensure the right panel host shows the Detail card (so the intro beat has something).
+  _ensureDetailMode() {
+    const host = document.getElementById("panel-host");
+    if (!host || host.classList.contains("mode-detail")) return;
+    const tab = document.querySelector('.rail-tab[data-panel-tab="detail"]');
+    if (tab) { tab.click(); return; }
+    host.classList.remove("mode-insights", "mode-library");
+    host.classList.add("mode-detail");
+  },
+
+  // ---- low-level actions, each mirroring a real user interaction ----
+  _rep(id, r) { if (typeof Panels !== "undefined") Panels.applyRepresentation(id, r); },
+  _colorBy(key) {
+    // Drive the always-visible "Color by Variable" dropdown so it visibly changes.
+    const sel = document.getElementById("dd-color");
+    if (sel && [...sel.options].some((o) => o.value === key)) {
+      sel.value = key; sel.dispatchEvent(new Event("change"));
+    } else if (map && Atlas.metricSpec && Atlas.metricSpec(key)) {
+      if (map.isTimeMode()) exitTimeMode();
+      map.unifyLayerColors(key);
+      if (typeof updateLegend === "function") updateLegend();
+      if (typeof updateSelectBox === "function") updateSelectBox();
+    }
+  },
+  _target(level) {
+    // Click the real Target-area segmented control (Seoul / Gu / Dong).
+    const b = document.querySelector(`#target-seg button[data-target="${level}"]`);
+    if (b) b.click(); else if (typeof setTargetArea === "function") setTargetArea(level);
+  },
+  _shapGroup(i) {
+    if (!map || !Atlas._contextGroups) return;
+    const g = Atlas._contextGroups()[i];
+    if (g && g.columns) map.setShapFeatures(g.columns);
+  },
+  _shapAll() { if (map) { map.shapFeatures = null; map.render(); } }, // reset to every feature (setShapFeatures(null) would clear to none)
+
+  // Representative regions (most heat-sensitive) so the selection demos always land somewhere.
+  _topGu() { return Atlas.guMetrics.slice().sort((a, b) => a.rhsi_rank - b.rhsi_rank)[0]; },
+  _topDong() { return Atlas.dongMetrics.slice().sort((a, b) => a.rhsi_rank - b.rhsi_rank)[0]; },
+  _dongInGu(guCode) { return Atlas.dongMetrics.filter((d) => d.gu_code === guCode).sort((a, b) => a.rhsi_rank - b.rhsi_rank)[0]; },
+  _mapCenter() {
+    const el = document.getElementById("map-stage");
+    if (!el) return { x: 600, y: 320 };
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width * 0.5, y: r.top + r.height * 0.45 };
+  },
+  _hoverDong(dm) {
+    // Simulate a map hover — the tooltip shows the region's name, mapped value, RHSI and rank.
+    if (!dm || typeof showTooltip !== "function") return;
+    const c = this._mapCenter();
+    showTooltip({ level: "dong", dong_code: dm.dong_code, dong_name: dm.dong_name, gu_code: dm.gu_code, x: c.x, y: c.y });
+  },
+  _hideTip() { if (typeof hideTooltip === "function") hideTooltip(); },
+  _clickRegion(level, m) {
+    // Simulate clicking a region on the map to drill the camera scope in.
+    if (!m || typeof handleRegionClick !== "function") return;
+    if (level === "gu") handleRegionClick({ level: "gu", gu_code: m.gu_code });
+    else handleRegionClick({ level: "dong", gu_code: m.gu_code, dong_code: m.dong_code });
+  },
+  _box(id, value) {
+    // Drive a spatial SELECT box (Gu / Dong) exactly as a manual pick would.
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    sel.value = value;
+    sel.dispatchEvent(new Event("change"));
+  },
+  _mode(m) { if (typeof setCameraMode === "function") setCameraMode(m); },
+  _autoRotate(on) {
+    const cb = document.getElementById("mc-autorotate");
+    if (cb) cb.checked = !!on;
+    if (map && map.setAutoRotate) map.setAutoRotate(!!on);
+  },
+
+  // Build the flat beat list once, following the video narration order:
+  // Project Detail → Weather → Sales → Urban Features → SHAP → RHSI. Each section
+  // opens on its Detail card (brief blur), then drives the exact functions the
+  // narration describes. Fully auto-loops; no subtitles.
+  _build() {
+    const B = [];
+    const push = (ms, run) => B.push({ ms, run });
+    const T = this;
+
+    // 1 — PROJECT DETAIL: the hub every dataset is reached from.
+    push(3400, () => { T._autoRotate(false); T._mode("3d"); Panels.renderProject(); T._target("seoul"); T.setFocus("detail"); });
+    push(2800, () => { T.clearFocus(); });
+
+    // 2 — WEATHER: temporal heat field, played across 2024 with the time controls + graph.
+    push(3000, () => { Panels.renderDatasetDetail("weather"); T._target("seoul"); T._rep("weather", "heatfield"); T.setFocus("detail"); });
+    push(6000, () => { T.clearFocus(); T._rep("weather", "heatfield"); startPlayback(); });
+
+    // 3 — SALES: six theme rings, then alternate forms (columns / choropleth / dominant).
+    push(3000, () => { Panels.renderDatasetDetail("sales"); T._target("gu"); T._rep("sales", "rings"); T.setFocus("detail"); });
+    push(4200, () => { T.clearFocus(); T._rep("sales", "rings"); startPlayback(); });
+    push(3600, () => { T._rep("sales", "columns"); });
+    push(3600, () => { T._rep("sales", "choropleth"); });
+    push(3600, () => { T._rep("sales", "dominant"); });
+
+    // 4 — URBAN FEATURES: choropleth, cycle the coloured feature, then hover a neighborhood.
+    push(3000, () => { Panels.renderDatasetDetail("context"); T._target("seoul"); T._rep("context", "choropleth"); T.setFocus("detail"); });
+    push(3600, () => { T.clearFocus(); T._colorBy("land_price"); });
+    push(3600, () => { T._colorBy("elderly_share"); });
+    push(3600, () => { T._colorBy("green_space_share"); });
+    push(4800, () => { T._hoverDong(T._topDong()); });   // tooltip: name + value + RHSI + rank
+    push(500,  () => { T._hideTip(); });
+
+    // 5 — SHAP: signed contribution bars, decomposed by feature group.
+    push(3000, () => { Panels.renderDatasetDetail("shap"); T._target("seoul"); T._shapAll(); T._rep("shap", "signedcols"); T.setFocus("detail"); });
+    push(4000, () => { T.clearFocus(); T._shapAll(); T._rep("shap", "signedcols"); });
+    push(3800, () => { T._shapGroup(0); });
+    push(3800, () => { T._shapGroup(2); });
+    push(2600, () => { T._shapAll(); });
+
+    // 6 — RHSI: the index choropleth, spatial selection (map clicks + boxes), map options.
+    push(3000, () => { Panels.renderDatasetDetail("rhsi"); T._target("seoul"); T._rep("rhsi", "choropleth"); T.setFocus("detail"); });
+    push(3800, () => { T.clearFocus(); T._rep("rhsi", "choropleth"); });
+    push(3200, () => { T._clickRegion("gu", T._topGu()); });       // click the map → a district
+    push(3200, () => { T._clickRegion("dong", T._topDong()); });   // click the map → a neighborhood
+    push(3400, () => { T._target("seoul"); const g = T._topGu(); T._box("dd-gu", g.gu_code); });          // spatial box → district
+    push(3600, () => { const g = T._topGu(); const d = T._dongInGu(g.gu_code); if (d) T._box("dd-dong", d.dong_code); }); // spatial box → dong
+    push(3600, () => { T._mode("2d"); });                          // flat 2D view
+    push(4200, () => { T._mode("3d"); T._autoRotate(true); });     // auto-rotate
+    push(2200, () => { T._autoRotate(false); });                   // stop before the loop restarts
+
+    return B;
+  },
+
+  start() {
+    if (this.playing) return;
+    this.playing = true;
+    this._ensureDetailMode();
+    if (window.AtlasNav) window.AtlasNav.pinMap(); // reveal the Representation / layer controls
+    this._beats = this._build();
+    this._bi = 0;
+    this._run();
+  },
+  stop() {
+    this.playing = false;
+    clearTimeout(this._timer); this._timer = null;
+    this.clearFocus();
+    if (map && map.isTimeMode()) exitTimeMode();
+    if (window.AtlasNav) window.AtlasNav.unpin();
+  },
+  _run() {
+    if (!this.playing || !this._beats || !this._beats.length) return;
+    const beat = this._beats[this._bi];
+    try { beat.run(); } catch (e) { /* keep the loop alive */ }
+    this._bi = (this._bi + 1) % this._beats.length;
+    this._timer = setTimeout(() => this._run(), beat.ms || 3000);
+  },
+};
+function initTour() { /* fully auto-loop — Overview nav toggles Tour.start/stop, no in-page controls */ }
 
 // ---------- Time-flow controller ----------
 const timeState = { playing: false, dayIndex: 0, speed: 1, _last: 0, _acc: 0, _raf: null };
@@ -164,10 +367,23 @@ function initTimeline() {
   Timeline.setScope(state.scope);
 }
 
-// Entering time mode composes the dual view (temperature + sales groups),
-// overriding the static metric until Reset.
+// Which temporal flow is active, from the open dataset + representation:
+//   Heat × sales rep → "both"; Sales dataset → "sales"; otherwise → "temp".
+// The graph, the map layers and the readout all read this single value.
+function timeChannel() {
+  const ds = (typeof Panels !== "undefined") ? Panels.selectedDatasetId : null;
+  const rep = (typeof Panels !== "undefined") ? Panels.selectedRep : null;
+  if (rep === "compare") return "both";
+  if (ds === "sales") return "sales";
+  return "temp";
+}
+// Entering time mode plays only the active dataset's flow (temperature for Weather,
+// sales for Sales); Heat × sales plays both. Overrides the static metric until Reset.
 function enterTimeMode() {
+  const ch = timeChannel();
+  if (map) { map.timeCompare = (ch === "both"); map.timeVar = (ch === "sales") ? "sales" : "temp"; }
   if (!map.isTimeMode()) { map.setTimeMode(true); updateLegend(); }
+  else if (map) map.render();
 }
 function startPlayback() {
   enterTimeMode();
@@ -259,8 +475,9 @@ const FOOTER_LAYER_META = {
 function activeFooterLayers() {
   const active = [];
   if (map.isTimeMode()) {
-    active.push({ c: "#78a8ff", name: "Weather Heat Layer", role: "weather" });
-    active.push({ c: "#ffb86b", name: "Sales Response Layer", role: "sales" });
+    if (map.timeVar === "sales") active.push({ c: "#ffb86b", name: "Daily Sales Choropleth", role: "sales" });
+    else active.push({ c: "#78a8ff", name: "Weather Heat Layer", role: "weather" });
+    if (map.timeCompare || map.sectorView) active.push({ c: "#ffb86b", name: "Sales Response Layer", role: "sales" });
   }
   Object.keys(FOOTER_LAYER_META).forEach((k) => { if (map.layers[k]) active.push(FOOTER_LAYER_META[k]); });
   if (state.scope.dongCode) active.push({ c: "#cf7897", name: "Selected District Highlight", role: "select" });
@@ -278,7 +495,9 @@ function updateFooter() {
   document.getElementById("footer-layer-list").innerHTML = active.map((l) =>
     `<div class="footer-layer-row"><span class="layer-dot" style="--c:${l.c}"></span><span class="layer-name">${l.name}</span><span class="layer-role">${l.role}</span></div>`).join("");
 
-  const view = map.isTimeMode() ? "Weather × Sales Compare" : (Atlas.metricSpec(map.colorBy)?.label || map.colorBy);
+  const view = map.isTimeMode()
+    ? (map.timeVar === "sales" ? "Daily Sales Choropleth" : "Weather × Sales Compare")
+    : (Atlas.metricSpec(map.colorBy)?.label || map.colorBy);
   let scope = Atlas.scopeLabel(state.scope);
   if (map.isTimeMode()) scope += " · Hot vs Mild Days";
   document.getElementById("footer-view").textContent = view;
@@ -312,8 +531,18 @@ function initControlPanel() {
 
   // per-layer toggles (data layers) — these aren't drawn in time mode, so a toggle
   // auto-leaves time mode and applies right away (no manual Reset needed).
+  const OSM_LAYERS = new Set(["nature", "transit", "amenity"]);
   document.querySelectorAll('#mc-layers input[data-layer]').forEach((cb) => {
-    cb.addEventListener("change", () => { exitTimeMode(); map.setLayer(cb.dataset.layer, cb.checked); syncToolbar(); updateLegend(); });
+    cb.addEventListener("change", () => {
+      exitTimeMode();
+      const layer = cb.dataset.layer;
+      map.setLayer(layer, cb.checked);
+      syncToolbar(); updateLegend();
+      // Optional OSM context layers are fetched on first enable (not at startup).
+      if (cb.checked && OSM_LAYERS.has(layer)) {
+        Atlas.ensureOSM(layer).then(() => { map._staticCache = null; map.render(); updateLegend(); });
+      }
+    });
   });
 
   // Every data layer has independent color and height/size metrics. The right-rail
@@ -404,14 +633,21 @@ function initControlPanel() {
 
   document.getElementById("mc-autorotate").addEventListener("change", (e) => map.setAutoRotate(e.target.checked));
 
+  // Selected-dong highlight style: glowing boundary area (default) or vertical pillar.
+  document.querySelectorAll("#mc-selstyle button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#mc-selstyle button").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      map.setSelectionStyle(btn.dataset.selstyle);
+    });
+  });
+
   // Map Mode: 2D (flat) / 3D (pitched) / Compare (side-by-side, placeholder).
   document.querySelectorAll("#mc-mode button").forEach((btn) => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll("#mc-mode button").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
       const m = btn.dataset.mode;
-      if (m === "2d") map.map.easeTo({ pitch: 0, duration: 600 });
-      else if (m === "3d") map.map.easeTo({ pitch: 45, duration: 600 });
+      if (m === "2d" || m === "3d") setCameraMode(m);
+      else { document.querySelectorAll("#mc-mode button").forEach((b) => b.classList.remove("active")); btn.classList.add("active"); }
       // Compare lifts the dataset filter on the map-panel dropdowns (compare across datasets).
       refreshVariableDropdowns();
     });
@@ -431,6 +667,27 @@ function syncToolbar() {
   });
 }
 
+// Set the glow (3D bloom) and reflect it on the slider + read-out.
+function setGlowUI(v) {
+  map.setGlow(v);
+  const g = document.getElementById("mc-glow"); if (g) g.value = String(v);
+  const gv = document.getElementById("mc-glow-val"); if (gv) gv.textContent = (+v).toFixed(1);
+}
+// Camera mode. 2D is flat (pitch 0) and kills the bloom/glow — the additive glow only
+// reads at a 3D pitch and otherwise smears the map blue; 3D restores the pitch and the
+// remembered glow. Also mirrors the Map Mode segmented control.
+function setCameraMode(mode) {
+  if (mode === "2d") {
+    if (map.glow > 0) map._glow3d = map.glow; // remember the 3D glow to restore later
+    setGlowUI(0);
+    if (map.map && map.map.easeTo) map.map.easeTo({ pitch: 0, duration: 600 });
+  } else {
+    setGlowUI(map._glow3d != null ? map._glow3d : map.glow);
+    if (map.map && map.map.easeTo) map.map.easeTo({ pitch: 45, duration: 600 });
+  }
+  document.querySelectorAll("#mc-mode button").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+}
+
 function bindSlider(id, apply, fmt) {
   const el = document.getElementById(id);
   const out = document.getElementById(id + "-val");
@@ -443,32 +700,136 @@ function fmtLegendNum(v) {
   return v.toFixed(2);
 }
 
-// kepler-style grouped legend: scope title, "Color by X" subtitle, a swatch +
-// numeric-range row per class (matches the reference Layer Legend pattern),
-// plus a secondary "Height by Y" line since our map is bivariate.
+// Multi-layer legend: one typed block per DISTINCT variable in play (grouped by
+// map.legend()), so the key stays truthful when layers encode different metrics.
+// Block format adapts to data type — diverging/sequential gradients, a height
+// glyph, categorical swatches, or a temperature scale.
+let legendCollapsed = false;
+function toggleLegend() {
+  legendCollapsed = !legendCollapsed;
+  const el = document.getElementById("map-legend");
+  if (el) el.classList.toggle("collapsed", legendCollapsed);
+}
+// CSS gradient string from a ramp's rgb stops, evenly spaced.
+function rampGradient(stops) {
+  const n = stops.length;
+  return "linear-gradient(90deg," + stops.map((c, i) => `rgb(${c.join(",")}) ${(n === 1 ? 0 : i / (n - 1) * 100).toFixed(1)}%`).join(",") + ")";
+}
+// Layer chips naming which layers an encoding drives (reuse the footer metadata).
+function legendChips(layerKeys) {
+  if (!layerKeys || !layerKeys.length) return "";
+  return `<div class="lg-chips">` + layerKeys.map((k) => {
+    const m = FOOTER_LAYER_META[k] || { c: "#8892a6", name: k };
+    return `<span class="lg-chip"><span class="lg-cdot" style="--c:${m.c}"></span>${m.name}</span>`;
+  }).join("") + `</div>`;
+}
+function legendBlockHtml(b) {
+  if (b.channel === "color" || b.channel === "temp") {
+    const d = b.domain, grad = rampGradient(b.rampStops);
+    const unit = b.unit || "";
+    const ends = d.zero != null
+      ? `<span>${fmtLegendNum(d.min)}</span><span>0</span><span>${fmtLegendNum(d.max)}</span>`
+      : `<span>${fmtLegendNum(d.min)}${unit}</span><span>${fmtLegendNum(d.max)}${unit}</span>`;
+    return `<div class="lg-block">
+      <div class="lg-var">${b.label}</div>
+      ${legendChips(b.layerKeys)}
+      <div class="lg-gradient" style="background:${grad}"></div>
+      <div class="lg-ends">${ends}</div>
+    </div>`;
+  }
+  if (b.channel === "height") {
+    return `<div class="lg-block">
+      <div class="lg-var">Height <span class="lg-up">↑</span> ${b.label}</div>
+      ${legendChips(b.layerKeys)}
+      <div class="lg-hglyph"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="lg-ends"><span>${fmtLegendNum(b.domain.min)}</span><span>${fmtLegendNum(b.domain.max)}</span></div>
+    </div>`;
+  }
+  if (b.channel === "category") {
+    return `<div class="lg-block">
+      <div class="lg-var">${b.title}</div>
+      <div class="lg-groups">` +
+      b.items.map((g) => `<div class="lg-grow"><span class="lg-swatch" style="background:${g.color}"></span><span>${g.label}</span></div>`).join("") +
+      `</div></div>`;
+  }
+  return "";
+}
 function updateLegend() {
   const lg = map.legend();
   const title = Atlas.scopeLabel(state.scope);
-  const rows = lg.classes.map((c) => `
-    <div class="lg-row">
-      <span class="lg-swatch" style="background:${c.color}"></span>
-      <span class="lg-range">${fmtLegendNum(c.lo)} to ${fmtLegendNum(c.hi)}</span>
-    </div>`).join("");
-  const groupKey = (lg.groups && lg.groups.length)
-    ? `<div class="lg-sub lg-height">Sales rings</div><div class="lg-groups">` +
-      lg.groups.map((g) => `<div class="lg-grow"><span class="lg-swatch" style="background:${g.color}"></span><span>${g.label}</span></div>`).join("") +
-      `</div>`
-    : "";
-  document.getElementById("map-legend").innerHTML = `
-    <div class="lg-title">${title}</div>
-    <div class="lg-sub">${lg.groups ? "" : "Color by "}<b>${lg.label}</b></div>
-    <div class="lg-rows">${rows}</div>
-    ${lg.heightLabel ? `<div class="lg-sub lg-height">Height by <b>${lg.heightLabel}</b></div>` : ""}
-    ${groupKey}`;
+  const body = (lg.blocks && lg.blocks.length)
+    ? lg.blocks.map(legendBlockHtml).join("")
+    : `<div class="lg-empty">No data layer active</div>`;
+  const el = document.getElementById("map-legend");
+  el.classList.toggle("collapsed", legendCollapsed);
+  el.innerHTML = `
+    <div class="lg-head" id="lg-head">
+      <span class="lg-title">${title}</span>
+      <button class="lg-collapse" type="button" aria-label="Collapse legend">▾</button>
+    </div>
+    <div class="lg-body">${body}</div>`;
+  const head = document.getElementById("lg-head");
+  if (head) head.addEventListener("click", toggleLegend);
   updateFooter(); // footer mirrors the same state the legend reflects
   updateSelectBox();
+  updateMapCaption();
   if (typeof Insights !== "undefined") Insights.scheduleRender();
   syncTimeline();
+  syncSectorView();
+  updateShapWaterfall();
+}
+
+// Canonical SHAP waterfall for the selected dong — top per-feature signed drivers.
+// Positive (blue) raises predicted RHSI; negative (rose) lowers it.
+function updateShapWaterfall() {
+  const el = document.getElementById("shap-waterfall");
+  if (!el) return;
+  const on = (typeof Panels !== "undefined" && Panels.selectedDatasetId === "shap") && map && map.selectedDongCode;
+  const rows = on ? Atlas.signedDrivers(map.selectedDongCode, 8) : [];
+  if (!rows.length) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  const mx = Math.max(...rows.map((r) => Math.abs(r.value))) || 1;
+  const dong = Atlas.dongByCode.get(map.selectedDongCode);
+  el.innerHTML = `<div class="wf-head">SHAP drivers · <b>${dong ? dong.dong_name : ""}</b></div>
+    <div class="wf-rows">${rows.map((r) => {
+      const w = Math.round((Math.abs(r.value) / mx) * 48), pos = r.value >= 0;
+      return `<div class="wf-row"><span class="wf-label">${r.label}</span>
+        <div class="wf-track"><div class="wf-bar ${pos ? "pos" : "neg"}" style="width:${w}%; ${pos ? "left:50%" : "right:50%"};"></div></div></div>`;
+    }).join("")}</div>
+    <div class="wf-foot">← lower predicted RHSI · higher predicted RHSI →</div>`;
+  el.classList.remove("hidden");
+}
+
+// One-line "reading the map" caption under the legend — what's encoded + what to look for.
+const MAP_HINTS = {
+  RHSI_retail: "blue dongs lose the most retail on hot days (heat-sensitive) — look for downtown clusters",
+  land_price: "brighter = pricier land — compare its pattern to RHSI",
+  delta_daypop: "how much daytime population drains on hot days — the strongest RHSI driver",
+  dnpr: "day-vs-night population ratio — busier daytime areas are more heat-sensitive",
+};
+function updateMapCaption() {
+  const el = document.getElementById("map-caption");
+  if (!el || !map) return;
+  if (map.isTimeMode()) {
+    el.innerHTML = `Daily temperature heat field · <b>press play</b> to sweep 2024`;
+    return;
+  }
+  const key = map.colorBy;
+  const spec = (typeof Atlas !== "undefined") ? Atlas.metricSpec(key) : null;
+  const label = spec ? spec.label : key;
+  const hint = MAP_HINTS[key] || (spec && spec.signed ? "diverging by dong — blue is low, red is high" : "sequential by dong — low to high");
+  el.innerHTML = `Colored by <b>${label}</b> · ${hint}`;
+}
+
+// Sector-view switcher: pick a multivariate encoding of the 6 sales themes.
+function initSectorView() {
+  document.querySelectorAll("#sector-view button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#sector-view button").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      map.setSectorView(btn.dataset.sv || null);
+      updateLegend();
+    });
+  });
 }
 
 // ---------- Spatial drill ----------
@@ -519,6 +880,34 @@ function setTargetArea(level) {
 function syncTargetSeg() {
   const lvl = state.scope.level === "city" ? "seoul" : state.scope.level;
   document.querySelectorAll("#target-seg button").forEach((b) => b.classList.toggle("active", b.dataset.target === lvl));
+  syncGrainAvailability();
+}
+
+// Granularity can't be coarser than the target area — aggregating a single Gu at
+// "Seoul" grain is meaningless. Only the target level and finer grains are SHOWN
+// (Seoul target → Seoul/Gu/Dong; Gu → Gu/Dong; Dong → Dong). Whenever the target
+// LEVEL changes, auto-select the grain one step finer than the target.
+let _lastTargetLevel = null;
+function syncGrainAvailability() {
+  const order = { seoul: 0, gu: 1, dong: 2 };
+  const finer = { seoul: "gu", gu: "dong", dong: "dong" }; // one step lower than the target
+  const targetLvl = state.scope.level === "city" ? "seoul" : state.scope.level;
+  const min = order[targetLvl];
+  const grains = activeSupports().grains; // capability-gated grains for the active dataset
+  const btns = [...document.querySelectorAll("#grain-seg button")];
+  btns.forEach((b) => {
+    // hidden if coarser than the target area OR not supported by the active dataset
+    b.hidden = order[b.dataset.grain] < min || !grains.includes(b.dataset.grain);
+  });
+  const isVisible = (g) => btns.some((b) => b.dataset.grain === g && !b.hidden);
+  const levelChanged = targetLvl !== _lastTargetLevel;
+  _lastTargetLevel = targetLvl;
+  const cur = document.querySelector("#grain-seg button.active")?.dataset.grain;
+  // level change → auto one-step-finer; otherwise keep the current grain if still valid
+  let want = levelChanged ? finer[targetLvl] : (cur && isVisible(cur) ? cur : finer[targetLvl]);
+  if (!isVisible(want)) want = targetLvl; // e.g. Dong target → only Dong is valid
+  btns.forEach((b) => b.classList.toggle("active", b.dataset.grain === want));
+  if (map && map.grain !== want) map.setGrain(want);
 }
 
 // Apply a camera scope + keep timeline / breadcrumb / controls in sync.
@@ -545,7 +934,7 @@ function initSelectBox() {
   if (!guSel || !dongSel || !colorSel || !heightSel) return;
   const gus = Atlas.guGeometry.slice().sort((a, b) => a.gu_name.localeCompare(b.gu_name));
   guSel.innerHTML = `<option value="">Seoul (all gu)</option>` + gus.map((g) => `<option value="${g.gu_code}">${g.gu_name}</option>`).join("");
-  const metricOptions = Atlas.availableMapMetrics().map((m) => `<option value="${m.key}">${m.label}</option>`).join("");
+  const metricOptions = metricOptionsGroupedHTML(Atlas.availableMapMetrics());
   colorSel.innerHTML = `<option value="">— color by —</option>` + metricOptions;
   heightSel.innerHTML = `<option value="">— height by —</option>` + metricOptions;
   colorSel.value = map.colorBy;
@@ -580,6 +969,7 @@ function initSelectBox() {
     map.unifyLayerHeights(v);
     if (typeof syncLayerVarSelects === "function") syncLayerVarSelects();
     updateLegend();
+    if (typeof Insights !== "undefined") Insights.scheduleRender();
   });
 }
 // Reflect scope + unified color/height metrics back onto the dropdowns.
@@ -598,19 +988,61 @@ function updateSelectBox() {
   }
 }
 
-// The time-series is filled only for time-based datasets (UHUS project / Weather /
-// Sales) or when a time-based view is active; it follows the spatial target area /
-// granularity (Seoul granularity → citywide series).
-const TIME_DATASETS = ["weather", "sales", "salesfeature", "heatfeature", "heatdays"];
+// ---------- dataset capabilities ----------
+// What each dataset supports, so a control (timeline, sector view, granularity)
+// only appears where the data actually has that dimension. No dataset selected =
+// the whole project → everything is available.
+const ALL_GRAINS = ["seoul", "gu", "dong"];
+const DATASET_SUPPORTS = {
+  weather:      { time: true,  sectors: false },
+  sales:        { time: true,  sectors: true  },
+  salesfeature: { time: true,  sectors: true  },
+  sectorprofile:{ time: true,  sectors: true  },
+  heatfeature:  { time: true,  sectors: false },
+  heatdays:     { time: true,  sectors: false },
+  atlas:        { time: true,  sectors: true  },
+  context:      { time: false, sectors: true  }, // 4 urban-feature groups
+  mobility:     { time: false, sectors: false },
+  rhsi:         { time: false, sectors: false },
+  shap:         { time: false, sectors: true  }, // 4 SHAP-contribution groups
+  geometry:     { time: false, sectors: false },
+  dongbase:     { time: false, sectors: false },
+};
+function activeSupports() {
+  const ds = (typeof Panels !== "undefined") ? Panels.selectedDatasetId : null;
+  if (!ds) return { time: true, sectors: true, grains: ALL_GRAINS };
+  const s = DATASET_SUPPORTS[ds] || { time: false, sectors: false };
+  return { time: !!s.time, sectors: !!s.sectors, grains: s.grains || ALL_GRAINS };
+}
 function syncTimeline() {
   if (typeof Timeline === "undefined" || !Timeline.chart) return;
+  // The strip only makes sense for the two temporal datasets (Weather, Sales);
+  // hide it entirely everywhere else (project overview, RHSI, Context, SHAP).
   const ds = (typeof Panels !== "undefined") ? Panels.selectedDatasetId : null;
-  const enabled = !ds || TIME_DATASETS.includes(ds) || map.isTimeMode();
-  Timeline.setEnabled(enabled);
-  if (!enabled) return;
+  const show = ds === "weather" || ds === "sales";
+  const strip = document.getElementById("timeline");
+  if (strip) strip.classList.toggle("hidden", !show);
+  Timeline.setEnabled(show);
+  if (!show) return;
+  Timeline.setChannel(timeChannel());
   const scope = map.grain === "seoul" ? { level: "city", guCode: null, dongCode: null } : state.scope;
   Timeline.setScope(scope);
   if (map.isTimeMode()) Timeline.setDay(timeState.dayIndex);
+}
+
+// The sector-view switcher only appears when the active data has sectors; otherwise
+// it is hidden and any active encoding is cleared (capability gating).
+function syncSectorView() {
+  const el = document.getElementById("sector-view");
+  if (!el || !map) return;
+  const ok = activeSupports().sectors;
+  el.classList.toggle("hidden", !ok);
+  const stage = document.getElementById("map-stage");
+  if (stage) stage.classList.toggle("sector-on", ok); // lift the legend clear of it
+  if (!ok && map.sectorView) {
+    map.setSectorView(null);
+    el.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.sv === ""));
+  }
 }
 
 // ---------- variable dropdowns scoped to the selected dataset ----------
@@ -623,15 +1055,45 @@ function metricDataset(key) {
 // Metrics to offer given the dataset open in the right-panel detail. honorCompare:
 // the MAP-panel dropdowns show ALL metrics when Map Mode = Compare; the right-rail
 // SELECT dropdown stays dataset-scoped regardless. No dataset selected → all.
+// A dataset that explains/reuses another's variables borrows its metric scope.
+// SHAP's contributions are per urban feature, so it shares Urban Context's features.
+const METRIC_SCOPE_ALIAS = { shap: "context" };
 function contextMetrics(honorCompare) {
   const all = Atlas.availableMapMetrics();
   const dsId = (typeof Panels !== "undefined" && Panels.selectedDatasetId) ? Panels.selectedDatasetId : null;
   const compare = honorCompare && document.querySelector("#mc-mode button.active")?.dataset.mode === "compare";
   if (compare || !dsId) return all;
-  const filtered = all.filter((m) => metricDataset(m.key) === dsId);
-  return filtered.length ? filtered : all; // dataset has no mappable metric → fall back to all
+  // Strictly the selected dataset's mappable variables — no fallback to "all" (a
+  // dataset with no map-colorable variable, e.g. Weather, shows an empty list).
+  const scopeId = METRIC_SCOPE_ALIAS[dsId] || dsId;
+  return all.filter((m) => metricDataset(m.key) === scopeId);
 }
 function metricOptionsHTML(metrics) { return metrics.map((m) => `<option value="${m.key}">${m.label}</option>`).join(""); }
+// Map a metric to its theme group (key + title): Sales industries → SALES_GROUPS,
+// urban/share features → CONTEXT_GROUPS. Used to build the grouped dropdowns.
+let _metricGroupLookup = null;
+function metricGroupInfo(m) {
+  if (!_metricGroupLookup) {
+    _metricGroupLookup = {};
+    const add = (groups) => { if (groups) Object.entries(groups).forEach(([gk, g]) => (g.columns || []).forEach((c) => { _metricGroupLookup[c] = { key: gk, title: g.title }; })); };
+    if (typeof SALES_GROUPS !== "undefined") add(SALES_GROUPS);
+    if (typeof CONTEXT_GROUPS !== "undefined") add(CONTEXT_GROUPS);
+  }
+  if (m.kind === "rhsi") return { key: null, title: "Heat-sensitivity index" };
+  return _metricGroupLookup[m.key] || { key: null, title: m.kind === "industry" ? "Other industries" : "Other features" };
+}
+// Options grouped into <optgroup> by theme. Each group with a real key gets a
+// selectable "▸ All <group>" row that colors the map by the group aggregate
+// (value "grp_<key>"). Falls back to a flat list when it's all one group.
+function metricOptionsGroupedHTML(metrics) {
+  const groups = new Map(); // title -> { key, ms[] }
+  metrics.forEach((m) => { const info = metricGroupInfo(m); if (!groups.has(info.title)) groups.set(info.title, { key: info.key, ms: [] }); groups.get(info.title).ms.push(m); });
+  if (groups.size <= 1) return metricOptionsHTML(metrics);
+  return [...groups].map(([title, { key, ms }]) => {
+    const allOpt = key ? `<option value="grp_${key}">▸ All ${title}</option>` : "";
+    return `<optgroup label="${title.replace(/&/g, "&amp;")}">${allOpt}${metricOptionsHTML(ms)}</optgroup>`;
+  }).join("");
+}
 function setSelectOptions(sel, html, preferred) {
   if (!sel) return;
   sel.innerHTML = html;
@@ -641,11 +1103,13 @@ function setSelectOptions(sel, html, preferred) {
 // select's <option>s via innerHTML keeps its change listener attached.
 function refreshVariableDropdowns() {
   if (typeof Atlas === "undefined" || !map) return;
-  const selHTML = metricOptionsHTML(contextMetrics(false)); // right-rail SELECT: always dataset-scoped
+  const scoped = contextMetrics(false);                     // right-rail SELECT: always dataset-scoped
+  const selHTML = metricOptionsGroupedHTML(scoped);         // grouped into <optgroup> by theme
   const mapMetrics = contextMetrics(true);                  // map panel: unfiltered in Compare
   const mapHTML = metricOptionsHTML(mapMetrics);
-  setSelectOptions(document.getElementById("dd-color"), `<option value="">— color by —</option>` + selHTML, map.colorBy);
-  setSelectOptions(document.getElementById("dd-height"), `<option value="">— height by —</option>` + selHTML, map.heightBy);
+  const empty = scoped.length === 0;
+  setSelectOptions(document.getElementById("dd-color"), `<option value="">${empty ? "— no mappable variables —" : "— color by —"}</option>` + selHTML, map.colorBy);
+  setSelectOptions(document.getElementById("dd-height"), `<option value="">${empty ? "— no mappable variables —" : "— height by —"}</option>` + selHTML, map.heightBy);
   document.querySelectorAll("#mc-layers select.lyr-var").forEach((s) => {
     const cur = s.value;
     const placeholder = s.dataset.varChannel === "height" ? "height by" : "color by";
@@ -664,7 +1128,7 @@ const Insights = {
   _timer: null,
   init() {
     const resizeAll = () => this.charts.forEach((c) => { try { c && c.resize && c.resize(); } catch (e) {} });
-    const col = document.getElementById("insights-col");
+    const col = document.getElementById("insights-view");
     if (window.ResizeObserver && col) new ResizeObserver(resizeAll).observe(col);
     window.addEventListener("resize", resizeAll);
     this.render();
@@ -679,7 +1143,11 @@ const Insights = {
     if (sub) sub.textContent = (typeof scopeSub === "function") ? scopeSub(state.scope) : "";
     const datasetId = (typeof Panels !== "undefined" && Panels.selectedDatasetId) || null;
     let kpiHtml = "";
-    try { kpiHtml = (typeof regionSummaryHtml === "function") ? regionSummaryHtml(state.scope) : ""; } catch (e) {}
+    try {
+      kpiHtml = typeof datasetSummaryHtml === "function"
+        ? datasetSummaryHtml(state.scope, datasetId)
+        : (typeof regionSummaryHtml === "function" ? regionSummaryHtml(state.scope) : "");
+    } catch (e) {}
     let figs;
     try { figs = insightsFigures(state.scope, datasetId); }
     catch (e) { body.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:16px">Insights unavailable.</div>`; return; }
@@ -704,7 +1172,7 @@ function miniBarSVG(t, label) {
   return `<div class="rt-mini"><div class="rt-mini-label">${label}</div>
     <svg width="${w}" height="${h + 6}" viewBox="0 0 ${w} ${h + 6}">
       <defs><linearGradient id="rtg" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0" stop-color="#7DA7FF"/><stop offset="0.5" stop-color="#FFB86B"/><stop offset="1" stop-color="#E45C91"/>
+        <stop offset="0" stop-color="#7DA7FF"/><stop offset="0.5" stop-color="#FFB86B"/><stop offset="1" stop-color="#E4524E"/>
       </linearGradient></defs>
       <rect x="0" y="3" width="${w}" height="${h}" rx="4" fill="url(#rtg)" opacity="0.5"/>
       <rect x="${(x - 1.5).toFixed(1)}" y="0" width="3" height="${h + 6}" rx="1.5" fill="#fff"/>
@@ -728,9 +1196,16 @@ function showTooltip(info) {
 
   if (map.isTimeMode()) {
     const guCode = info.level === "gu" ? info.gu_code : (Atlas.dongByCode.get(info.dong_code) || {}).gu_code;
-    const temp = Atlas.dayValueByGu(timeState.dayIndex, "temp")[guCode];
     const dateLabel = Atlas.timeDateLabel ? Atlas.timeDateLabel(timeState.dayIndex) : `day ${timeState.dayIndex + 1}`;
-    rows += `<div class="rt-row"><span>${dateLabel} · temp</span><b>${temp == null ? "—" : temp.toFixed(1) + "°C"}</b></div>`;
+    if (map.timeVar === "sales") {
+      const sales = info.level === "gu"
+        ? Atlas.dayValueByGu(timeState.dayIndex, "sales")[guCode]
+        : ((Atlas.groupSalesByDong(timeState.dayIndex)[info.dong_code] || []).reduce((sum, v) => sum + (v || 0), 0));
+      rows += `<div class="rt-row"><span>${dateLabel} · sales</span><b>${sales == null ? "—" : fmtMetric(sales)}</b></div>`;
+    } else {
+      const temp = Atlas.dayValueByGu(timeState.dayIndex, "temp")[guCode];
+      rows += `<div class="rt-row"><span>${dateLabel} · temp</span><b>${temp == null ? "—" : temp.toFixed(1) + "°C"}</b></div>`;
+    }
   } else if (spec) {
     const val = info.level === "gu"
       ? Atlas.guAggregateValue(info.gu_code, spec)
@@ -749,17 +1224,76 @@ function showTooltip(info) {
       <div class="rt-row"><span>Avg RHSI</span><b>${m.RHSI_retail.toFixed(3)}</b></div>
       <div class="rt-row"><span>Rank</span><b>${m.rhsi_rank} / ${Atlas.guMetrics.length}</b></div>
       <div class="rt-row"><span>Dongs</span><b>${m.dong_count}</b></div>` : "") +
+      regionDatasetStats(info) +
       `<a class="rt-link" href="#">click to drill in →</a>`;
   } else {
     const m = Atlas.dongByCode.get(info.dong_code);
     tip.innerHTML = `<div class="rt-title">${info.dong_name}</div>` + rows + (m ? `
       <div class="rt-row"><span>RHSI</span><b>${m.RHSI_retail.toFixed(3)}</b></div>
       <div class="rt-row"><span>Rank</span><b>${m.rhsi_rank} / ${Atlas.dongMetrics.length}</b></div>
-      <div class="rt-row"><span>Hot / Mild days</span><b>${m.n_hot_days} / ${m.n_mild_days}</b></div>` : "");
+      <div class="rt-row"><span>Hot / Mild days</span><b>${m.n_hot_days} / ${m.n_mild_days}</b></div>` : "") +
+      regionDatasetStats(info);
   }
   tip.style.left = (info.x + 16) + "px"; tip.style.top = (info.y + 16) + "px";
   tip.style.transform = "none";
   tip.classList.remove("hidden");
+}
+// Extra region stats tailored to the OPEN dataset (no header/prose — just numbers).
+// Appended below the base tooltip rows; skipped on the project overview. Every lookup
+// is null-guarded so a missing field simply drops its row.
+function regionDatasetStats(info) {
+  const dsId = (typeof Panels !== "undefined") ? Panels.selectedDatasetId : null;
+  if (!dsId) return "";
+  const level = info.level === "gu" ? "gu" : "dong";
+  const guCode = info.gu_code || (level === "dong" ? (Atlas.dongByCode.get(info.dong_code) || {}).gu_code : null);
+  const scope = level === "gu"
+    ? { level: "gu", guCode: info.gu_code, dongCode: null }
+    : { level: "dong", guCode, dongCode: info.dong_code };
+  const rec = level === "gu" ? Atlas.guByCode.get(info.gu_code) : Atlas.dongByCode.get(info.dong_code);
+  const row = (label, value) => (value == null || value === "" || value === "—")
+    ? "" : `<div class="rt-row"><span>${label}</span><b>${value}</b></div>`;
+  const pct1 = (v) => (v == null || Number.isNaN(v)) ? null : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+  const featVal = (key) => {
+    const spec = Atlas.metricSpec(key); if (!spec) return null;
+    return level === "gu" ? Atlas.guAggregateValue(info.gu_code, spec) : Atlas.metricValue(rec, spec);
+  };
+  let out = "";
+
+  if (dsId === "rhsi") {
+    out += row("Approx. change", pct1(Atlas.rhsiToPct(Atlas.retailHSI(scope))));
+    const rank = rec && rec.rhsi_rank, total = level === "gu" ? Atlas.guMetrics.length : Atlas.dongMetrics.length;
+    if (rank) out += row("Percentile", `top ${Math.max(1, Math.round(rank / total * 100))}%`);
+  } else if (dsId === "weather") {
+    const s = Atlas.dailySeries(scope).filter((d) => Number.isFinite(d.temp));
+    if (s.length) {
+      const temps = s.map((d) => d.temp);
+      out += row("Peak temp", Math.max(...temps).toFixed(1) + "°C");
+      out += row("Mean daily max", (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1) + "°C");
+    }
+    const dd = level === "dong" ? (rec && rec.delta_daypop) : Atlas.deltaDaypop(scope);
+    if (dd != null && !Number.isNaN(dd)) out += row("Δ Daypop (hot vs mild)", hsiPct(dd));
+  } else if (dsId === "sales") {
+    out += row("Retail change (hot vs mild)", pct1(Atlas.rhsiToPct(Atlas.retailHSI(scope))));
+    const ind = Atlas.mostSensitiveIndustry(scope);
+    if (ind) out += row("Most sensitive", `${ind.label} ${(ind.sensitivity * 100).toFixed(1)}%`);
+    const rs = featVal("retail_share");
+    if (rs != null) out += row("Retail share", (rs * 100).toFixed(1) + "%");
+  } else if (dsId === "context") {
+    // The urban features most correlated with RHSI, showing THIS region's value.
+    (Atlas.rhsiCorrelations(4) || []).filter((c) => c.key !== map.colorBy).slice(0, 3).forEach((c) => {
+      const val = featVal(c.key);
+      if (val != null && !Number.isNaN(val)) out += row(URBAN_FEATURE_LABELS[c.key] || c.label || c.key, fmtMetric(val));
+    });
+  } else if (dsId === "shap") {
+    const drivers = level === "dong"
+      ? Atlas.signedDrivers(info.dong_code, 3)
+      : (Atlas.featureImportance(scope, 3) || []).map((f) => ({ label: f.label, value: f.signed }));
+    (drivers || []).forEach((d) => {
+      if (d.value == null || Number.isNaN(d.value)) return;
+      out += row(d.label, `${d.value >= 0 ? "+" : ""}${d.value.toFixed(3)}`);
+    });
+  }
+  return out ? `<div class="rt-sep"></div>` + out : "";
 }
 function hideTooltip() { document.getElementById("region-tooltip").classList.add("hidden"); }
 

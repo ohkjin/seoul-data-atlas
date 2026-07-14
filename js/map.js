@@ -29,16 +29,22 @@ function mixStops(stops, t) {
   const a = stops[seg], b = stops[seg + 1];
   return [lerp(a[0], b[0], lt), lerp(a[1], b[1], lt), lerp(a[2], b[2], lt)];
 }
-// Real night-photography palette: no cyan anywhere. Data reads as literal
-// "heat glow" — red (most heat-sensitive) -> amber (neutral) -> calm warm-white
-// (most resilient). Red->amber naturally passes through orange mid-lerp.
-const RAMP_DIVERGING = [[255, 59, 48], [255, 200, 87], [255, 246, 230]];
+// Diverging RHSI ramp — one colour language shared with the Insights charts (ED):
+// blue (low / most heat-sensitive) -> amber (neutral) -> red (high / most resilient),
+// read like a temperature scale (low value = cool/blue, high value = warm/red).
+const RAMP_DIVERGING = [[125, 167, 255], [255, 184, 107], [228, 82, 78]];
 // dim/near-invisible (low magnitude) -> amber -> hot orange-red (high magnitude)
 const RAMP_SEQUENTIAL = [[18, 20, 24], [255, 200, 87], [255, 90, 40]];
-// Time-flow temperature heatmap ramp: cool "night glow" (navy -> blue -> cyan ->
-// white -> soft pink -> deep pink) ending in a red-pink hot stop. Shared by the
-// HeatmapLayer and the legend so the swatches always match the map.
-const TEMP_HEAT_RANGE = [[36,62,130],[74,120,220],[57,230,230],[238,244,255],[228,92,145],[255,214,240]];
+// Time-flow temperature heatmap: a perceptual weather scale and a display domain
+// focused on the temperatures people need to distinguish. Using the raw annual
+// extremes (about -10–37°C) compressed most days into the blue half of the ramp.
+// The tails still clamp cleanly to cold/hot.
+const TEMP_HEAT_RANGE = [[35,58,145],[65,126,235],[57,220,232],[242,246,255],[255,166,82],[255,68,62]];
+const TEMP_DISPLAY_DOMAIN = [5, 31];
+// Layers that encode a color metric / a height metric — used to build one legend
+// per distinct variable actually in play (mirrors VAR_LAYERS in js/app.js).
+const DATA_COLOR_LAYERS = ["pointCore", "pointHalo", "influence", "heatmap", "choropleth", "columns", "hexbin", "dotField"];
+const HEIGHT_LAYERS = ["choropleth", "columns", "hexbin"];
 
 // Layer registry mirrors the night-GIS design doc's two-group model:
 //   Static Geo Layers (the physical night city)  — boundary (G9/G10), buildings (G4), roads (G6/G7)
@@ -51,6 +57,7 @@ const DEFAULT_LAYERS = {
   boundary: true, roads: true, buildings: false,
   heatmap: false, pointCore: true, pointHalo: true, influence: false,
   choropleth: false, columns: false, hexbin: false, dotField: false, labels: false,
+  nature: false, transit: false, amenity: false, // lazy OSM context layers (off by default)
 };
 const ALL_OFF = Object.fromEntries(Object.keys(DEFAULT_LAYERS).map((k) => [k, false]));
 const PRESETS = {
@@ -66,6 +73,11 @@ const ROAD_STYLE = {
   arterial: { core: [255, 244, 224, 165], halo: [255, 183, 77, 60], coreW: 1.2, haloW: 3.2 },
   mid:      { core: [255, 214, 140, 110], halo: [255, 150, 60, 40], coreW: 0.8, haloW: 2 },
 };
+// OSM "Amenities" category colors (index = category code from fetch_osm_amenity.py):
+// 0 education · 1 health · 2 civic · 3 cooling/shelter · 4 activity · 5 parking
+const AMENITY_COLORS = [
+  [123, 167, 255], [228, 92, 145], [255, 184, 107], [63, 230, 165], [57, 230, 230], [150, 160, 175],
+];
 // G4 building base extrusion — dark navy city fabric (not metric-driven).
 const BUILDING_STYLE = {
   fill: [10, 17, 24, 185],       // #0A1118
@@ -80,6 +92,11 @@ class AtlasMap3D {
     this.layers = { ...DEFAULT_LAYERS };
     this.colorBy = "RHSI_retail";
     this.heightBy = "RHSI_retail";
+    // Multivariate "Sector view" over the 6 sales themes: null | rings | radial | columns | dominant.
+    this.sectorView = null;
+    // null means all SHAP features; otherwise only the selected additive
+    // contributions participate in the signed stacks.
+    this.shapFeatures = null;
     // Spatial grain of the DATA layers, decoupled from the camera scope: null =
     // auto (gu at city, dong when drilled), or an explicit 'seoul'|'gu'|'dong'.
     this.grain = null;
@@ -94,6 +111,13 @@ class AtlasMap3D {
     this.glow = 1;
     this.autoRotate = false;
     this.selectedDongCode = null;
+    // How a selected dong is highlighted: 'boundary' (glowing area/outline, default)
+    // or 'pillar' (the vertical shiny beam).
+    this.selectionStyle = "boundary";
+    // Time mode: draw the sales rings alongside the temperature field (Heat × sales)
+    // or the heat field alone. Representations set this. Default OFF so a single
+    // dataset never leaks "both" — only the Heat × sales rep turns it on.
+    this.timeCompare = false;
     // Time-flow: when timeMode is on the map colors by daily temperature (per gu,
     // year-normalized) instead of the static metric; `playing` gates the pulse.
     this.timeMode = false;
@@ -169,7 +193,7 @@ class AtlasMap3D {
   // In time mode the data ramp is always the warm sequential (dim→amber→red) so
   // temperature reads as literal heat regardless of the selected static metric.
   _activeRamp(key) { return this.timeMode ? RAMP_SEQUENTIAL : this._rampFor(Atlas.metricSpec(key || this.colorBy)); }
-  _sig() { return [this.scope.level, this.scope.guCode, this.scope.dongCode || "", this.grain || "", this.colorBy, this.heightBy, JSON.stringify(this.layerVar), JSON.stringify(this.layerHeightVar), JSON.stringify(this.layerRadius), this.timeMode ? "T" + this.timeVar + this.timeDayIndex : "S"].join("|"); }
+  _sig() { return [this.scope.level, this.scope.guCode, this.scope.dongCode || "", this.grain || "", this.colorBy, this.heightBy, JSON.stringify(this.layerVar), JSON.stringify(this.layerHeightVar), JSON.stringify(this.layerRadius), this.sectorView || "", this.shapFeatures ? this.shapFeatures.join(",") : "shap:all", this.timeMode ? "T" + this.timeVar + this.timeDayIndex : "S"].join("|"); }
 
   // ---------- spatial grain (data-layer granularity, independent of camera) ----------
   _keyFor(layer, channel = "color") {
@@ -191,8 +215,11 @@ class AtlasMap3D {
       const gus = this.scope.level === "city" ? Atlas.guGeometry : Atlas.guGeometry.filter((x) => x.gu_code === this.scope.guCode);
       return gus.map((x) => ({ kind: "gu", code: x.gu_code, name: x.gu_name, position: x.centroid, geometry: x.geometry }));
     }
+    // At a drilled gu OR dong, render the whole containing gu's dongs (dong-level
+    // context). Collapsing to the single target dong leaves density layers (heatmap)
+    // as one blob and drops the neighbourhood around it — the selected dong is still
+    // highlighted separately by the selection layer.
     const dongs = this.scope.level === "city" ? Atlas.dongGeometry
-      : this.scope.level === "dong" ? Atlas.dongGeometry.filter((d) => d.dong_code === this.scope.dongCode)
       : Atlas.dongGeometry.filter((d) => d.gu_code === this.scope.guCode);
     return dongs.map((d) => ({ kind: "dong", code: d.dong_code, name: d.dong_name, gu_code: d.gu_code, position: d.centroid, geometry: d.geometry }));
   }
@@ -254,6 +281,35 @@ class AtlasMap3D {
       properties: r.kind === "gu"
         ? { gu_code: r.code, gu_name: r.name, colorVal: this._regionValue(r, spec), heightVal: this._regionValue(r, hspec) }
         : { dong_code: r.code, dong_name: r.name, gu_code: r.gu_code, colorVal: this._regionValue(r, spec), heightVal: this._regionValue(r, hspec) } }));
+  }
+
+  _timeChoroplethFeatures() {
+    const kind = this.timeVar === "sales" ? "sales" : "temp";
+    const guVals = Atlas.dayValueByGu(this.timeDayIndex, kind);
+    const dongVals = kind === "sales" && typeof Atlas.groupSalesByDong === "function"
+      ? Atlas.groupSalesByDong(this.timeDayIndex)
+      : {};
+    const valueFor = (r) => {
+      if (r.kind === "gu") return guVals[r.code];
+      if (r.kind === "dong") {
+        if (kind === "sales") return (dongVals[r.code] || []).reduce((sum, v) => sum + (v || 0), 0);
+        return guVals[r.gu_code];
+      }
+      const vals = Object.values(guVals).filter((v) => Number.isFinite(v));
+      if (!vals.length) return null;
+      return kind === "sales"
+        ? vals.reduce((sum, v) => sum + v, 0)
+        : vals.reduce((sum, v) => sum + v, 0) / vals.length;
+    };
+    if (this._grain() === "seoul") {
+      const cv = valueFor({ kind: "seoul" });
+      return Atlas.guGeometry.map((x) => ({ type: "Feature", geometry: x.geometry,
+        properties: { gu_code: x.gu_code, gu_name: x.gu_name, colorVal: cv, heightVal: 0 } }));
+    }
+    return this._grainRegions().map((r) => ({ type: "Feature", geometry: r.geometry,
+      properties: r.kind === "gu"
+        ? { gu_code: r.code, gu_name: r.name, colorVal: valueFor(r), heightVal: 0 }
+        : { dong_code: r.code, dong_name: r.name, gu_code: r.gu_code, colorVal: valueFor(r), heightVal: 0 } }));
   }
 
   _dongPoints(colorKey, heightKey) {
@@ -343,6 +399,27 @@ class AtlasMap3D {
         getFillColor: [this.colorBy, this.opacity, this.glow, this.selectedDongCode, this._sig()],
         getElevation: [this.heightBy, this.elevationScale, this._sig()],
       },
+    });
+  }
+
+  _timeChoroplethLayer() {
+    const data = this._timeChoroplethFeatures();
+    const vals = data.map((f) => f.properties.colorVal).filter((v) => Number.isFinite(v));
+    const [lo, hi] = vals.length ? [Math.min(...vals), Math.max(...vals)] : [0, 1];
+    const span = (hi - lo) || 1;
+    const a = Math.round(this.opacity * 255);
+    const color = (v) => {
+      if (!Number.isFinite(v)) return [50, 55, 68, a];
+      const t = Math.max(0, Math.min(1, (v - lo) / span));
+      const [r, g, b] = mixStops(RAMP_SEQUENTIAL, t);
+      return [r, g, b, a];
+    };
+    return new deck.GeoJsonLayer({
+      id: "time-choropleth", data: { type: "FeatureCollection", features: data },
+      pickable: true, stroked: false, filled: true, extruded: false,
+      getFillColor: (f) => color(f.properties.colorVal),
+      onClick: (info) => this._click(info), onHover: (info) => this._hover(info),
+      updateTriggers: { getFillColor: [this.timeVar, this.timeDayIndex, this.opacity, this._sig()] },
     });
   }
 
@@ -626,56 +703,92 @@ class AtlasMap3D {
   // the rich glow. Scope-aware: whole Seoul at city, or the drilled gu's dongs.
   _tempHeatmapLayer() {
     const temps = Atlas.dayValueByGu(this.timeDayIndex, "temp");
-    const [lo, hi] = Atlas.timeVarDomain("temp");
+    const [lo, hi] = TEMP_DISPLAY_DOMAIN;
     const span = (hi - lo) || 1;
     const isCity = this.scope.level === "city";
     const dongs = isCity ? Atlas.dongGeometry : Atlas.dongGeometry.filter((d) => d.gu_code === this.scope.guCode);
-    const data = dongs.map((d) => ({ position: d.centroid, w: Math.max(0, ((temps[d.gu_code] ?? lo) - lo) / span) }));
+    const data = dongs.map((d) => {
+      const t = Math.max(0, Math.min(1, ((temps[d.gu_code] ?? lo) - lo) / span));
+      // Keep the field visible on cold days; hue, not disappearance, carries most
+      // of the temporal temperature signal.
+      return { position: d.centroid, t, w: 0.35 + 0.65 * t };
+    });
+    // Temperature is near-uniform across Seoul on any given day (~1.5°C spread), so a
+    // HeatmapLayer auto-normalises the tiny SPATIAL variation and hides the big TEMPORAL
+    // swing (−10°C → +37°C). Fix: drive the glow's COLOUR + brightness from the day's
+    // ABSOLUTE temperature — a dynamic colour band + intensity that shift blue→pink over 2024.
+    const meanT = data.length ? data.reduce((s, d) => s + d.t, 0) / data.length : 0.5;
+    const R = TEMP_HEAT_RANGE, last = R.length - 1;
+    const rampAt = (x) => { const p = Math.max(0, Math.min(1, x)) * last, i = Math.floor(p), f = p - i, a = R[i], b = R[Math.min(last, i + 1)]; return [Math.round(lerp(a[0], b[0], f)), Math.round(lerp(a[1], b[1], f)), Math.round(lerp(a[2], b[2], f))]; };
+    // Heatmap aggregation otherwise maps most pixels to the low end of colorRange.
+    // Cluster all six stops around today's absolute temperature, while retaining
+    // a small spatial gradient between districts.
+    const colorRange = [-0.10, -0.05, 0, 0.04, 0.08, 0.12].map((d) => rampAt(meanT + d));
     return new deck.HeatmapLayer({
       id: "temp-heat", data, getPosition: (d) => d.position, getWeight: (d) => d.w,
       radiusPixels: (isCity ? 75 : 60) * this._rmul("heatmap"),
-      intensity: 0.6, threshold: 0.05, opacity: 0.5,
-      colorRange: TEMP_HEAT_RANGE,
-      updateTriggers: { getWeight: [this.timeDayIndex, this.scope.guCode, this.scope.level] },
+      intensity: 0.75 + meanT * 0.8, threshold: 0.04, opacity: 0.48 + meanT * 0.34,
+      colorRange,
+      updateTriggers: { getWeight: [this.timeDayIndex, this.scope.guCode, this.scope.level], colorRange: [this.timeDayIndex] },
     });
   }
 
   // ---------- time-flow sales rings: nested rings per theme group ----------
-  // Follows the map drill: whole-Seoul → one set per GU; drilled into a gu →
-  // one set per DONG in that gu (finer detail), using dong-level daily sales.
-  _salesGroupRings() {
+  // Per-region theme values for the Sector view — follows the current GRAIN
+  // (_grainRegions) exactly like the metric layers, so seoul/gu/dong all work.
+  // Time mode uses the current day; static uses annual totals. Each theme is
+  // normalised by the max across the rendered set (single-region → own max).
+  // Which multivariate profile the Sector view renders, by selected dataset:
+  // 6 sales themes (default / time-aware) · 4 urban-feature groups (context) ·
+  // 4 SHAP-contribution groups (shap). Each spec gives the per-region value maps,
+  // the group count, and the per-group colours + labels.
+  _profileSpec() {
+    const ds = (typeof Panels !== "undefined") ? Panels.selectedDatasetId : null;
+    if (ds === "context") return { kind: "features", n: Atlas._contextGroups().length, colors: Atlas.contextGroupColors(), labels: Atlas.contextGroupLabels(), byGu: Atlas.featureGroupProfileByGu(), byDong: Atlas.featureGroupProfileByDong() };
+    if (ds === "shap") return { kind: "shap", n: Atlas._contextGroups().length, colors: Atlas.contextGroupColors(), labels: Atlas.contextGroupLabels(), byGu: Atlas.shapGroupProfileByGu(), byDong: Atlas.shapGroupProfileByDong() };
     const groups = Atlas.themeGroups();
-    const drilled = this.scope.level !== "city" && this.scope.guCode;
-    // per-region {centroid, vals[6], yearMax(i)} for the current scope
-    let regions, yearMax, minR, step;
-    if (drilled) {
-      const salesByDong = Atlas.groupSalesByDongInGu(this.scope.guCode, this.timeDayIndex);
-      regions = Atlas.dongGeometry
-        .filter((d) => d.gu_code === this.scope.guCode && salesByDong[d.dong_code])
-        .map((d) => ({ position: d.centroid, vals: salesByDong[d.dong_code] }));
-      yearMax = (i) => Atlas.groupYearMaxDong(i);
-      minR = 60; step = 300; // dongs are close together → tighter base, wide spread
-    } else {
-      const salesByGu = Atlas.groupSalesByGu(this.timeDayIndex);
-      regions = Atlas.guGeometry
-        .filter((g) => salesByGu[g.gu_code])
-        .map((g) => ({ position: g.centroid, vals: salesByGu[g.gu_code] }));
-      yearMax = (i) => Atlas.groupYearMax(i);
-      minR = 120; step = 620;
-    }
-    const data = [];
-    regions.forEach((r) => {
-      groups.forEach((grp, i) => {
-        const norm = Math.min(1, (r.vals[i] || 0) / yearMax(i));
-        if (norm <= 0.02) return;
-        data.push({
-          position: r.position,
-          // squared curve widens the gap between low- and high-value rings
-          radius: (minR + Math.pow(norm, 1.3) * step * (1 + i * 0.22)) * this._rmul("salesRings"),
-          rgb: Atlas.groupColor(i),
-        });
-      });
+    return { kind: "sales", n: groups.length || 6, colors: groups.map((g, i) => Atlas.groupColor(i)), labels: groups.map((g) => g.label),
+      byGu: this.timeMode ? Atlas.groupSalesByGu(this.timeDayIndex) : Atlas.groupTotalsByGu(),
+      byDong: this.timeMode ? Atlas.groupSalesByDong(this.timeDayIndex) : Atlas.groupTotalsByDong() };
+  }
+  _sectorRegions() {
+    const grain = this._grain();
+    const spec = this._profileSpec();
+    const n = spec.n, guVals = spec.byGu, dongVals = spec.byDong;
+    const seoulSum = () => {
+      const s = new Array(n).fill(0);
+      Object.values(guVals).forEach((v) => v && v.forEach((x, i) => s[i] += (x || 0)));
+      return s;
+    };
+    const regions = [];
+    this._grainRegions().forEach((r) => {
+      let vals;
+      if (r.kind === "seoul") vals = seoulSum();
+      else if (r.kind === "gu") vals = guVals[r.code];
+      else vals = dongVals[r.code];
+      if (vals) regions.push({ position: r.position, vals });
     });
+    const max = new Array(n).fill(0);
+    regions.forEach((r) => r.vals.forEach((v, i) => { if (v > max[i]) max[i] = v; }));
+    if (regions.length === 1) { const m = Math.max(...regions[0].vals) || 1; for (let i = 0; i < n; i++) max[i] = m; }
+    return { regions, drilled: grain === "dong", norm: (i) => max[i] || 1, n, colors: spec.colors, labels: spec.labels };
+  }
+  // Geo point `meters` away from [lon,lat] at `angle` (radians).
+  _geoOffset([lon, lat], meters, angle) {
+    return [lon + Math.cos(angle) * (meters / (111320 * Math.cos(lat * Math.PI / 180))), lat + Math.sin(angle) * (meters / 110540)];
+  }
+
+  // Concentric rings per theme (the original "pretty" look; the (1+i*.22) spread is
+  // kept intentionally — radial bars provide the honest comparison).
+  _salesGroupRings() {
+    const { regions, drilled, norm, n, colors } = this._sectorRegions();
+    const minR = drilled ? 60 : 120, step = drilled ? 300 : 620;
+    const data = [];
+    regions.forEach((r) => { for (let i = 0; i < n; i++) {
+      const nv = Math.min(1, (r.vals[i] || 0) / norm(i));
+      if (nv <= 0.02) continue;
+      data.push({ position: r.position, radius: (minR + Math.pow(nv, 1.3) * step * (1 + i * 0.22)) * this._rmul("salesRings"), rgb: colors[i] });
+    } });
     const ring = (id, width, alpha) => new deck.PathLayer({
       id, data, pickable: false, parameters: ADDITIVE, widthUnits: "pixels",
       widthMinPixels: width, widthMaxPixels: width, capRounded: true, jointRounded: true,
@@ -684,6 +797,224 @@ class AtlasMap3D {
       updateTriggers: { getPath: [this.timeDayIndex, this.radiusScale, this._sig()], getColor: [this.glow, this._sig()] },
     });
     return [ring("sales-rings-glow", 2.6, 38), ring("sales-rings-core", 1.2, 205)];
+  }
+
+  // Radial-bar glyph: one spoke per theme (fixed angle), length ∝ value. Honest.
+  _radialBarLayers() {
+    const { regions, drilled, norm, n, colors } = this._sectorRegions();
+    const maxLen = (drilled ? 720 : 1500) * this._rmul("salesRings");
+    const data = [];
+    regions.forEach((r) => { for (let i = 0; i < n; i++) {
+      const nv = Math.min(1, (r.vals[i] || 0) / norm(i));
+      const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+      data.push({ source: r.position, target: this._geoOffset(r.position, 55 + nv * maxLen, angle), rgb: colors[i] });
+    } });
+    const line = (id, width, alpha) => new deck.LineLayer({
+      id, data, pickable: false, parameters: ADDITIVE, widthUnits: "pixels", widthMinPixels: width, getWidth: width,
+      getSourcePosition: (d) => d.source, getTargetPosition: (d) => d.target,
+      getColor: (d) => [d.rgb[0], d.rgb[1], d.rgb[2], Math.round(alpha * Math.min(1.35, this.glow))],
+      updateTriggers: { getTargetPosition: [this.timeDayIndex, this.radiusScale, this._sig()], getColor: [this.glow, this._sig()] },
+    });
+    return [line("radial-glow", 5, 42), line("radial-core", 2.2, 215)];
+  }
+
+  // Stacked 3D columns: one segment per theme, stacked by base z-offset.
+  _stackedColumnLayers() {
+    const { regions, drilled, norm, n, colors } = this._sectorRegions();
+    const unit = drilled ? 900 : 2200;
+    const data = [];
+    regions.forEach((r) => {
+      let base = 0;
+      for (let i = 0; i < n; i++) {
+        const nv = Math.min(1, (r.vals[i] || 0) / norm(i));
+        const h = nv * unit;
+        if (h > 1) data.push({ position: [r.position[0], r.position[1], base], elevation: h, rgb: colors[i] });
+        base += h;
+      }
+    });
+    return [new deck.ColumnLayer({
+      id: "sector-columns", data, diskResolution: 12, radius: 120 * this._rmul("columns"),
+      extruded: true, pickable: false, elevationScale: this.elevationScale,
+      getPosition: (d) => d.position, getElevation: (d) => d.elevation,
+      getFillColor: (d) => [d.rgb[0], d.rgb[1], d.rgb[2], 232],
+      material: { ambient: 0.62, diffuse: 0.4, shininess: 20, specularColor: [40, 50, 70] },
+      updateTriggers: { getPosition: [this.timeDayIndex, this._sig()], getElevation: [this.timeDayIndex, this._sig()], getFillColor: [this._sig()] },
+    })];
+  }
+
+  // Dominant-theme choropleth: each region filled by its leading theme, alpha ∝ share.
+  // Follows the grain (gu / dong polygons); seoul grain has no single polygon → empty.
+  _dominantThemeLayer() {
+    const spec = this._profileSpec();
+    const guVals = spec.byGu, dongVals = spec.byDong;
+    const feats = [];
+    this._grainRegions().forEach((r) => {
+      if (!r.geometry) return;
+      const vals = r.kind === "gu" ? guVals[r.code] : dongVals[r.code];
+      if (!vals) return;
+      const total = vals.reduce((a, b) => a + (b || 0), 0) || 1;
+      let ai = 0; vals.forEach((v, i) => { if (v > vals[ai]) ai = i; });
+      feats.push({ type: "Feature", geometry: r.geometry, properties: { rgb: spec.colors[ai], dom: vals[ai] / total } });
+    });
+    return [new deck.GeoJsonLayer({
+      id: "sector-dominant", data: { type: "FeatureCollection", features: feats },
+      pickable: false, stroked: true, filled: true, extruded: false,
+      getFillColor: (f) => { const c = f.properties.rgb; return [c[0], c[1], c[2], Math.max(55, Math.round(70 + 165 * Math.min(1, (f.properties.dom - 0.16) / 0.5)))]; },
+      getLineColor: [255, 255, 255, 22], lineWidthMinPixels: 0.4,
+      updateTriggers: { getFillColor: [this.timeDayIndex, this._sig()] },
+    })];
+  }
+
+  // SHAP diverging column: one column per dong, coloured BY GROUP. Selected features
+  // that raise heat sensitivity stack UP from zero; selected features that buffer it
+  // stack DOWN. A black footprint marks the zero baseline without washing out the map.
+  _signedColumnLayers() {
+    const n = Atlas._contextGroups().length;
+    const colors = Atlas.contextGroupColors();
+    const selected = this._shapFeatureKeys();
+    const byGu = Atlas.shapGroupProfileSignedByGu(selected), byDong = Atlas.shapGroupProfileSignedByDong(selected);
+    const regions = [];
+    this._grainRegions().forEach((r) => {
+      let vals;
+      if (r.kind === "gu") vals = byGu[r.code];
+      else if (r.kind === "dong") vals = byDong[r.code];
+      else { vals = new Array(n).fill(0); Object.values(byGu).forEach((v) => v && v.forEach((x, i) => vals[i] += x)); }
+      if (vals) regions.push({ position: r.position, vals });
+    });
+    // normalise by the tallest +/− stack so columns fit the scene
+    let maxStack = 0;
+    regions.forEach((r) => { let up = 0, dn = 0; r.vals.forEach((v) => v >= 0 ? up += v : dn -= v); maxStack = Math.max(maxStack, up, dn); });
+    maxStack = maxStack || 1;
+    const drilled = this._grain() === "dong";
+    const unit = drilled ? 1500 : 3400, radius = (drilled ? 110 : 240) * this._rmul("columns"), scale = unit / maxStack;
+    const cols = [];
+    regions.forEach((r) => {
+      let utop = 0, dbot = 0;
+      for (let i = 0; i < n; i++) {
+        const v = r.vals[i], h = Math.abs(v) * scale;
+        if (h < 1) continue;
+        if (v >= 0) { cols.push({ position: [r.position[0], r.position[1], utop], elevation: h, rgb: colors[i] }); utop += h; }
+        else { dbot -= h; cols.push({ position: [r.position[0], r.position[1], dbot], elevation: h, rgb: colors[i] }); }
+      }
+    });
+    return [
+      // No zero-ring/footprint — the white ground-plane haze marks the zero level.
+      new deck.ColumnLayer({
+        id: "shap-signed-columns", data: cols, diskResolution: 14, radius, extruded: true, pickable: false,
+        elevationScale: this.elevationScale, stroked: true, getLineColor: [10, 14, 24, 140], lineWidthUnits: "pixels", getLineWidth: 0.5,
+        getPosition: (d) => d.position, getElevation: (d) => d.elevation,
+        getFillColor: (d) => [d.rgb[0], d.rgb[1], d.rgb[2], 242],
+        material: { ambient: 0.6, diffuse: 0.42, shininess: 22, specularColor: [50, 55, 75] },
+        updateTriggers: { getPosition: [this._sig()], getElevation: [this.elevationScale, this._sig()], getFillColor: [this._sig()] },
+      }),
+    ];
+  }
+
+  // Clip a ring (array of [lon,lat]) to the vertical band x0 ≤ lon ≤ x1
+  // (Sutherland–Hodgman against the two vertical half-planes). Returns [] if empty.
+  _clipRingToBand(ring, x0, x1) {
+    const clip = (poly, keep, edgeX) => {
+      const out = [];
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i], b = poly[(i + 1) % poly.length];
+        const ain = keep(a[0]), bin = keep(b[0]);
+        if (ain) out.push(a);
+        if (ain !== bin) {
+          const t = (edgeX - a[0]) / ((b[0] - a[0]) || 1e-12);
+          out.push([edgeX, a[1] + t * (b[1] - a[1])]);
+        }
+      }
+      return out;
+    };
+    let p = ring;
+    p = clip(p, (x) => x >= x0, x0); if (p.length < 3) return [];
+    p = clip(p, (x) => x <= x1, x1); if (p.length < 3) return [];
+    return p;
+  }
+  // Divided-area choropleth: split each region's polygon into N vertical strips whose
+  // widths ∝ the group values, clipped to the real shape, each strip coloured by group.
+  _dividedAreaLayers() {
+    const spec = this._profileSpec();
+    const colors = spec.colors, n = colors.length;
+    const polys = [];
+    this._grainRegions().forEach((r) => {
+      if (!r.geometry) return;
+      const vals = (r.kind === "gu" ? spec.byGu[r.code] : spec.byDong[r.code]);
+      if (!vals) return;
+      const total = vals.reduce((a, b) => a + (Math.max(0, b) || 0), 0) || 1;
+      const rings = r.geometry.type === "Polygon" ? [r.geometry.coordinates] : r.geometry.coordinates;
+      // bbox longitude range of the whole region
+      let xmin = Infinity, xmax = -Infinity;
+      rings.forEach((poly) => poly[0].forEach(([x]) => { if (x < xmin) xmin = x; if (x > xmax) xmax = x; }));
+      const span = (xmax - xmin) || 1e-9;
+      let frac = 0;
+      for (let i = 0; i < n; i++) {
+        const share = Math.max(0, vals[i] || 0) / total;
+        if (share <= 0.001) { frac += share; continue; }
+        const x0 = xmin + frac * span, x1 = xmin + (frac + share) * span;
+        rings.forEach((poly) => {
+          const clipped = this._clipRingToBand(poly[0], x0, x1);
+          if (clipped.length >= 3) polys.push({ polygon: clipped, rgb: colors[i] });
+        });
+        frac += share;
+      }
+    });
+    return [new deck.PolygonLayer({
+      id: "sector-divided", data: polys, pickable: false, stroked: true, filled: true, extruded: false,
+      getPolygon: (d) => d.polygon, getFillColor: (d) => [d.rgb[0], d.rgb[1], d.rgb[2], 205],
+      getLineColor: [8, 12, 22, 150], lineWidthUnits: "pixels", getLineWidth: 0.5, lineWidthMinPixels: 0.4,
+      updateTriggers: { getPolygon: [this._sig()], getFillColor: [this._sig()] },
+    })];
+  }
+
+  // Building-mix: colour every building in view by a group, assigned proportionally to
+  // its dong's group profile (stable per building). Buildings only load when drilled,
+  // so citywide this falls back to the stacked columns.
+  _buildingMixLayers() {
+    if (!Atlas.buildings) return this._stackedColumnLayers();
+    const isCity = this.scope.level === "city";
+    const code = this.scope.guCode, dong = this.scope.level === "dong" ? this.scope.dongCode : null;
+    // Whole Seoul at city scope (heavy — ~264k buildings), else the drilled gu/dong.
+    const feats = isCity ? Atlas.buildings.features
+      : Atlas.buildings.features.filter((f) => f.properties.gu === code && (!dong || f.properties.dong === dong));
+    const ds = (typeof Panels !== "undefined") ? Panels.selectedDatasetId : null;
+    // Single-metric datasets (e.g. RHSI): colour each building by its dong's metric
+    // value — a whole-city "coloured skyline"; keep the real building heights.
+    if (ds !== "context" && ds !== "shap") {
+      const mspec = Atlas.metricSpec(this.colorBy);
+      const color = this._colorAccessorForKey(this.colorBy);
+      return [new deck.GeoJsonLayer({
+        id: "building-mix", data: { type: "FeatureCollection", features: feats }, pickable: false,
+        stroked: true, filled: true, extruded: true, wireframe: false, elevationScale: this.elevationScale,
+        lineWidthUnits: "pixels", lineWidthMinPixels: 0.3, getLineWidth: 0.3, getLineColor: [10, 14, 24, 130],
+        getElevation: (f) => Math.min(f.properties.h || 12, 210) * 1.8,
+        getFillColor: (f) => { const rec = Atlas.dongByCode.get(f.properties.dong); const v = (rec && mspec) ? Atlas.metricValue(rec, mspec) : null; return color(v); },
+        updateTriggers: { getFillColor: [this.colorBy, this.opacity, this.glow, this._sig()], getElevation: [this.elevationScale] },
+      })];
+    }
+    const spec = this._profileSpec();
+    const byDong = spec.byDong, colors = spec.colors, n = colors.length;
+    // Max group value across the set → normalise heights.
+    let vmax = 0;
+    feats.forEach((f) => { const p = byDong[f.properties.dong]; if (p) p.forEach((v) => { if (v > vmax) vmax = v; }); });
+    vmax = vmax || 1;
+    const pick = (dcode, seed) => {
+      const p = byDong[dcode]; if (!p) return 0;
+      const total = p.reduce((a, b) => a + (Math.max(0, b) || 0), 0) || 1;
+      let t = ((Math.sin(seed * 12.9898) * 43758.5453) % 1 + 1) % 1; // stable pseudo-random [0,1)
+      t *= total; let acc = 0;
+      for (let i = 0; i < n; i++) { acc += Math.max(0, p[i] || 0); if (t <= acc) return i; }
+      return n - 1;
+    };
+    // Height carries the assigned group's strength at the dong (stronger group ⇒ taller).
+    return [new deck.GeoJsonLayer({
+      id: "building-mix", data: { type: "FeatureCollection", features: feats }, pickable: false,
+      stroked: true, filled: true, extruded: true, wireframe: false, elevationScale: this.elevationScale,
+      lineWidthUnits: "pixels", lineWidthMinPixels: 0.4, getLineWidth: 0.4, getLineColor: [10, 14, 24, 160],
+      getElevation: (f, { index }) => { const p = byDong[f.properties.dong]; const g = pick(f.properties.dong, index + 1); const gv = p ? Math.max(0, p[g] || 0) : 0; return 30 + (gv / vmax) * 620; },
+      getFillColor: (f, { index }) => { const c = colors[pick(f.properties.dong, index + 1)]; return [c[0], c[1], c[2], 230]; },
+      updateTriggers: { getFillColor: [this._sig()], getElevation: [this._sig(), this.elevationScale] },
+    })];
   }
 
   // ---------- real OSM road glow (static, not data-driven) ----------
@@ -712,6 +1043,56 @@ class AtlasMap3D {
       }));
     });
     return layers;
+  }
+
+  // ---------- OSM context layers (lazy; represent Urban Environment & Accessibility) ----------
+  // Green parks/forest + blue water polygons (translucent, drawn low so data reads over them).
+  _natureLayer() {
+    const fc = Atlas._osm && Atlas._osm.nature;
+    const feats = (fc && fc.features) || [];
+    if (!feats.length) return [];
+    return [new deck.PolygonLayer({
+      id: "nature", data: feats, pickable: false, stroked: false, filled: true, extruded: false,
+      getPolygon: (f) => f.geometry.coordinates,
+      getFillColor: (f) => f.properties.k === "water" ? [66, 120, 200, 92] : [72, 150, 92, 80],
+      parameters: { depthTest: false },
+    })];
+  }
+  // Subway lines + station dots + smaller bus-stop dots.
+  _transitLayer() {
+    const t = (Atlas._osm && Atlas._osm.transit) || {};
+    const out = [];
+    if ((t.subwayLines || []).length) out.push(new deck.PathLayer({
+      id: "transit-subway", data: t.subwayLines, getPath: (d) => d, widthUnits: "pixels",
+      getWidth: 1.4, widthMinPixels: 1.1, capRounded: true, jointRounded: true, pickable: false,
+      getColor: [120, 200, 255, 205],
+    }));
+    if ((t.stations || []).length) out.push(new deck.ScatterplotLayer({
+      id: "transit-stations", data: t.stations, getPosition: (d) => d, radiusUnits: "pixels",
+      getRadius: 2.6, radiusMinPixels: 1.8, stroked: false, pickable: false, getFillColor: [150, 215, 255, 235],
+    }));
+    if ((t.busStops || []).length) out.push(new deck.ScatterplotLayer({
+      id: "transit-bus", data: t.busStops, getPosition: (d) => d, radiusUnits: "pixels",
+      getRadius: 1.1, radiusMinPixels: 0.8, stroked: false, pickable: false, getFillColor: [255, 200, 120, 150],
+    }));
+    return out;
+  }
+  // Curated amenity points, colored by category.
+  _amenityLayer() {
+    const pts = (Atlas._osm && Atlas._osm.amenity) || [];
+    if (!pts.length) return [];
+    return [new deck.ScatterplotLayer({
+      id: "amenity", data: pts, getPosition: (d) => [d.x, d.y], radiusUnits: "pixels",
+      getRadius: 2, radiusMinPixels: 1.4, stroked: false, pickable: false,
+      getFillColor: (d) => { const c = AMENITY_COLORS[d.c] || [200, 200, 200]; return [c[0], c[1], c[2], 210]; },
+    })];
+  }
+  // Enabled OSM point/line context (transit + amenity) — drawn above roads.
+  _osmOverlayLayers() {
+    const L = this.layers, out = [];
+    if (L.transit && Atlas._osm && Atlas._osm.transit) out.push(...this._transitLayer());
+    if (L.amenity && Atlas._osm && Atlas._osm.amenity) out.push(...this._amenityLayer());
+    return out;
   }
 
   // ---------- labels ----------
@@ -799,39 +1180,66 @@ class AtlasMap3D {
     return layers;
   }
 
+  // Highlight the selected dong — either a glowing boundary/area (default) or a
+  // vertical shiny pillar. Style is chosen from the map panel (setSelectionStyle).
   _beamLayers() {
     if (!this.selectedDongCode) return [];
     const geom = Atlas.dongGeomByCode.get(this.selectedDongCode);
     if (!geom) return [];
     const pulse = 0.72 + 0.28 * Math.sin(this._pulse);
-    const pt = [{ position: geom.centroid }];
+    if (this.selectionStyle === "pillar") {
+      const pt = [{ position: geom.centroid }];
+      return [
+        new deck.ColumnLayer({ id: "beam", data: pt, diskResolution: 12, radius: 150, extruded: true,
+          getPosition: (d) => d.position, getElevation: 105000,
+          getFillColor: [221, 232, 255, Math.round(120 * pulse * this.glow)], parameters: ADDITIVE, pickable: false }),
+        new deck.ScatterplotLayer({ id: "beam-base", data: pt, getPosition: (d) => d.position,
+          getRadius: 620 * (0.9 + 0.1 * pulse), radiusUnits: "meters",
+          getFillColor: [200, 220, 255, Math.round(90 * pulse * this.glow)], parameters: ADDITIVE, pickable: false }),
+      ];
+    }
+    // 'boundary' (default): a soft additive area wash + a wide glow ring + a crisp
+    // outline, all pulsing. Independent of `glow` so it stays visible in flat 2D.
+    if (!geom.geometry) return [];
+    const data = { type: "FeatureCollection", features: [{ type: "Feature", geometry: geom.geometry, properties: {} }] };
     return [
-      new deck.ColumnLayer({ id: "beam", data: pt, diskResolution: 12, radius: 150, extruded: true,
-        getPosition: (d) => d.position, getElevation: 105000,
-        getFillColor: [221, 232, 255, Math.round(120 * pulse * this.glow)], parameters: ADDITIVE, pickable: false }),
-      new deck.ScatterplotLayer({ id: "beam-base", data: pt, getPosition: (d) => d.position,
-        getRadius: 620 * (0.9 + 0.1 * pulse), radiusUnits: "meters",
-        getFillColor: [200, 220, 255, Math.round(90 * pulse * this.glow)], parameters: ADDITIVE, pickable: false }),
+      new deck.GeoJsonLayer({ id: "sel-fill", data, filled: true, stroked: false, extruded: false,
+        getFillColor: [130, 178, 255, Math.round(42 * pulse)], parameters: ADDITIVE, pickable: false }),
+      new deck.GeoJsonLayer({ id: "sel-glow", data, filled: false, stroked: true, extruded: false,
+        getLineColor: [150, 190, 255, Math.round(150 * pulse)], lineWidthUnits: "pixels", getLineWidth: 7, parameters: ADDITIVE, pickable: false }),
+      new deck.GeoJsonLayer({ id: "sel-line", data, filled: false, stroked: true, extruded: false,
+        getLineColor: [228, 240, 255, 240], lineWidthUnits: "pixels", getLineWidth: 2, pickable: false }),
     ];
   }
+  setSelectionStyle(v) { this.selectionStyle = v === "pillar" ? "pillar" : "boundary"; this.render(); }
 
   // ---------- composition ----------
   _staticLayers() {
     if (!this._deckReady) return [];
-    const sig = [this._sig(), JSON.stringify(this.layers), this.elevationScale, this.radiusScale, this.opacity, this.glow, this.selectedDongCode].join("#");
+    const osmKey = (typeof Atlas !== "undefined" && Atlas.osmLoadedKey) ? Atlas.osmLoadedKey() : "";
+    const sig = [this._sig(), JSON.stringify(this.layers), this.elevationScale, this.radiusScale, this.opacity, this.glow, this.selectedDongCode, osmKey].join("#");
     if (this._staticCache && this._staticCache.sig === sig) return this._staticCache.layers;
     const L = this.layers;
     const layers = [...this._pickLayer()];
+    // Nature fills sit at the bottom (under data/roads) in every mode.
+    if (L.nature && Atlas._osm && Atlas._osm.nature) layers.push(...this._natureLayer());
 
-    // Time mode = a fixed dual-variable composition: temperature (heatmap at
-    // city / buildings on drill) + sales group rings (in _dynamicLayers). Point
-    // core/halo and the metric layers are suppressed.
+    // Time mode usually uses temperature heat, but Sales choropleth uses a
+    // dedicated daily-sales polygon layer so the flat-map rep can animate alone.
     if (this.timeMode) {
-      // Temperature heatmap stays on at every scope; when drilled into a gu the
-      // extruded buildings render on top of it (heatmap + buildings together).
-      layers.push(this._tempHeatmapLayer());
-      if (this.scope.level !== "city") { const b = this._buildingsLayer(); if (b) layers.push(b); }
+      // Channel-gated: temperature heat field for temp/both, the sales layer for
+      // sales/both. A single dataset shows only its own flow; only Heat × sales
+      // ("both") draws temperature AND sales together.
+      const ch = this._channel();
+      // Flat daily-sales polygon only for the Sales choropleth rep (its layer is on);
+      // the rings/columns encodings animate via _dynamicLayers instead.
+      if (ch !== "temp" && L.choropleth) layers.push(this._timeChoroplethLayer());
+      if (ch !== "sales") {
+        layers.push(this._tempHeatmapLayer());
+        if (this.scope.level !== "city") { const b = this._buildingsLayer(); if (b) layers.push(b); }
+      }
       if (L.roads) layers.push(...this._roadsLayer());
+      layers.push(...this._osmOverlayLayers());
       if (L.boundary) layers.push(...this._boundaryLayer());
       if (L.labels) layers.push(this._labelsLayer());
       this._staticCache = { sig, layers };
@@ -848,6 +1256,7 @@ class AtlasMap3D {
     const buildings = L.buildings ? this._buildingsLayer() : null;
     if (buildings) layers.push(buildings);
     if (L.roads) layers.push(...this._roadsLayer());
+    layers.push(...this._osmOverlayLayers());
     if (L.dotField) layers.push(...this._dotsLayer());
     if (L.pointHalo) layers.push(this._pointHaloLayer());
     if (L.pointCore) layers.push(this._pointCoreLayer());
@@ -859,11 +1268,50 @@ class AtlasMap3D {
 
   _dynamicLayers() {
     const layers = [];
-    if (this.timeMode) layers.push(...this._salesGroupRings());
+    if (this.sectorView) {
+      if (this.sectorView === "rings") layers.push(...this._salesGroupRings());
+      else if (this.sectorView === "radial") layers.push(...this._radialBarLayers());
+      else if (this.sectorView === "columns") layers.push(...this._stackedColumnLayers());
+      else if (this.sectorView === "dominant") layers.push(...this._dominantThemeLayer());
+      else if (this.sectorView === "signedcols") { layers.push(...this._groundPlaneLayer(), ...this._signedColumnLayers()); }
+      else if (this.sectorView === "divided") layers.push(...this._dividedAreaLayers());
+      else if (this.sectorView === "buildingmix") layers.push(...this._buildingMixLayers());
+    } else if (this.timeMode && this.timeCompare) layers.push(...this._salesGroupRings());
     else if (this.layers.influence) layers.push(...this._influenceLayer());
     layers.push(...this._beamLayers());
     return layers;
   }
+  setSectorView(v) { this.sectorView = ["rings", "radial", "columns", "dominant", "signedcols", "divided", "buildingmix"].includes(v) ? v : null; this.render(); }
+  _allShapFeatureKeys() {
+    return [...new Set(Atlas._contextGroups().flatMap((g) => g.columns || []))];
+  }
+  _shapFeatureKeys() {
+    return this.shapFeatures === null ? this._allShapFeatureKeys() : this.shapFeatures;
+  }
+  setShapFeatures(keys) {
+    const all = this._allShapFeatureKeys();
+    const allowed = new Set(all);
+    const selected = [...new Set(keys || [])].filter((k) => allowed.has(k));
+    this.shapFeatures = selected.length === all.length ? null : selected;
+    this.render();
+  }
+  _activeShapGroupIndexes() {
+    const selected = new Set(this._shapFeatureKeys());
+    return Atlas._contextGroups().map((g, i) => (g.columns || []).some((c) => selected.has(c)) ? i : -1).filter((i) => i >= 0);
+  }
+  // A pale translucent surface at z=0 mutes the base map and makes the
+  // above-zero and below-zero SHAP stacks read as separate halves.
+  _groundPlaneLayer() {
+    const [minx, miny, maxx, maxy] = Atlas.meta.bbox;
+    return [new deck.PolygonLayer({
+      id: "ground-plane", data: [{ polygon: [[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy]] }],
+      pickable: false, stroked: false, filled: true, extruded: false, getElevation: 0,
+      getPolygon: (d) => d.polygon, getFillColor: [246, 248, 252, 105],
+      parameters: { depthTest: false },
+    })];
+  }
+  // Heat field (temperature only) vs Heat × sales (temperature + sales rings) in time mode.
+  setTimeCompare(on) { this.timeCompare = !!on; this.render(); }
 
   _layers() { return [...this._staticLayers(), ...this._dynamicLayers()]; }
   render() { if (this.overlay) this.overlay.setProps({ layers: this._layers() }); }
@@ -992,6 +1440,10 @@ class AtlasMap3D {
   selectDong(code) { this.selectedDongCode = code; this._pulse = 0; this.render(); }
 
   // ---------- time-flow controls ----------
+  // Which temporal flow is on screen: "both" = Heat × sales, else the active
+  // playable variable ("sales" or "temp"). App-side timeChannel() keeps timeVar /
+  // timeCompare in sync with the open dataset + representation.
+  _channel() { return this.timeCompare ? "both" : (this.timeVar === "sales" ? "sales" : "temp"); }
   setTimeMode(on) { this.timeMode = on; if (!on) this.playing = false; this.render(); }
   setTimeDay(i) { this.timeDayIndex = Math.max(0, Math.min(Atlas.timeDayCount() - 1, i | 0)); this.render(); }
   setPlaying(on) { this.playing = on; this.render(); }
@@ -999,36 +1451,95 @@ class AtlasMap3D {
   // For the legend / read-out: is the map currently time-variable-driven?
   isTimeMode() { return this.timeMode; }
 
+  // Legend as a stack of typed blocks, one per DISTINCT variable in play, so the
+  // key stays truthful when layers are pointed at different metrics. Format is
+  // chosen per data type: signed→diverging gradient, unsigned→sequential gradient,
+  // sales themes→categorical swatches, height→its own glyph, time→temperature.
   legend() {
-    // Time mode: absolute temperature scale (blue<25<red) + a sales group key.
+    const grain = this._grain();
+
+    // Time mode: active daily variable, with sales-theme groups only when rings
+    // are part of the composition.
     if (this.timeMode) {
-      const tlo = 5, thi = 31, n = TEMP_HEAT_RANGE.length;
-      const classes = TEMP_HEAT_RANGE.map((c, i) => ({
-        color: `rgb(${c.join(",")})`, lo: tlo + (thi - tlo) * i / n, hi: tlo + (thi - tlo) * (i + 1) / n,
-      }));
-      const groups = Atlas.themeGroups().map((g, i) => ({
-        color: `rgb(${Atlas.groupColor(i).join(",")})`, label: g.label,
-      }));
-      return {
-        label: this.scope.level === "city" ? "Daily temp °C · heatmap" : "Daily temp °C · heatmap + buildings",
-        heightLabel: null, groups, grain: this._grain(),
-        activeLayers: Object.keys(this.layers).filter((k) => this.layers[k]), classes,
-      };
+      const isSales = this.timeVar === "sales";
+      const items = (!isSales && (this.timeCompare || this.sectorView))
+        ? Atlas.themeGroups().map((g, i) => ({ color: `rgb(${Atlas.groupColor(i).join(",")})`, label: g.label }))
+        : [];
+      return { grain, blocks: [
+        isSales
+          ? { channel: "sales", label: "Daily sales", rampStops: RAMP_SEQUENTIAL, domain: { min: Atlas.timeVarDomain("sales")[0], max: Atlas.timeVarDomain("sales")[1], zero: null }, unit: "₩" }
+          : { channel: "temp", label: "Daily temperature", rampStops: TEMP_HEAT_RANGE, domain: { min: TEMP_DISPLAY_DOMAIN[0], max: TEMP_DISPLAY_DOMAIN[1], zero: null }, unit: "°C" },
+        ...(items.length ? [{ channel: "category", title: "Sales themes", items }] : []),
+      ] };
     }
-    const spec = this._spec("color");
-    const hspec = this._spec("height");
-    const ramp = this._rampFor(spec);
-    const vals = Atlas.valuesForGrain(this._grain(), this.scope, spec);
-    const classes = Atlas.classBreaksFromValues(vals, spec, 6).map((c) => ({
-      color: `rgb(${mixStops(ramp, c.t).join(",")})`, lo: c.lo, hi: c.hi,
-    }));
-    const usesHeight = this.layers.choropleth || this.layers.columns || this.layers.hexbin;
-    return {
-      label: spec ? spec.label : this.colorBy,
-      heightLabel: usesHeight && hspec ? hspec.label : null,
-      grain: this._grain(),
-      activeLayers: Object.keys(this.layers).filter((k) => this.layers[k]),
-      classes,
-    };
+
+    const blocks = [];
+
+    // ---- color blocks, grouped by the variable each active layer encodes ----
+    const colorGroups = new Map(); // colorKey -> [layerKey, ...]
+    DATA_COLOR_LAYERS.forEach((l) => {
+      if (!this.layers[l]) return;
+      const key = this.layerVar[l] || this.colorBy;
+      (colorGroups.get(key) || colorGroups.set(key, []).get(key)).push(l);
+    });
+    colorGroups.forEach((layerKeys, key) => {
+      const spec = Atlas.metricSpec(key);
+      if (!spec) return;
+      const [min, max] = Atlas.metricDomain(this.scope, spec);
+      blocks.push({
+        channel: "color", kind: spec.signed ? "diverging" : "sequential",
+        label: spec.label, rampStops: this._rampFor(spec),
+        domain: { min, max, zero: spec.signed ? 0 : null }, layerKeys,
+      });
+    });
+
+    // ---- height blocks, grouped by the height variable of the 3D layers ----
+    const heightGroups = new Map();
+    HEIGHT_LAYERS.forEach((l) => {
+      if (!this.layers[l]) return;
+      const key = this.layerHeightVar[l] || this.heightBy;
+      (heightGroups.get(key) || heightGroups.set(key, []).get(key)).push(l);
+    });
+    heightGroups.forEach((layerKeys, key) => {
+      const spec = Atlas.metricSpec(key);
+      if (!spec) return;
+      const [min, max] = Atlas.metricDomain(this.scope, spec);
+      blocks.push({ channel: "height", label: spec.label, domain: { min, max }, layerKeys });
+    });
+
+    // ---- sector view active → the right key for how it's coloured ----
+    const _ds = (typeof Panels !== "undefined") ? Panels.selectedDatasetId : null;
+    const _grouped = _ds === "context" || _ds === "shap";
+    if (this.sectorView === "buildingmix" && !_grouped) {
+      // buildings coloured by the metric (e.g. RHSI) → show its colour bar, not group swatches
+      const spec = Atlas.metricSpec(this.colorBy);
+      if (spec) {
+        const [min, max] = Atlas.metricDomain(this.scope, spec);
+        blocks.push({ channel: "color", kind: spec.signed ? "diverging" : "sequential", label: spec.label, rampStops: this._rampFor(spec), domain: { min, max, zero: spec.signed ? 0 : null } });
+      }
+    } else if (this.sectorView === "signedcols") {
+      const active = this._activeShapGroupIndexes();
+      const items = active.map((i) => ({ color: `rgb(${Atlas.contextGroupColors()[i].join(",")})`, label: Atlas.contextGroupLabels()[i] }));
+      blocks.push({ channel: "category", title: "Selected SHAP · ↑ raises · ↓ buffers", items });
+    } else if (this.sectorView) {
+      const spec = this._profileSpec();
+      const items = spec.labels.map((label, i) => ({ color: `rgb(${spec.colors[i].join(",")})`, label }));
+      const title = spec.kind === "features" ? "Feature groups" : spec.kind === "shap" ? "SHAP groups" : "Sales themes";
+      if (items.length) blocks.push({ channel: "category", title, items });
+    }
+
+    // ---- OSM context layers key (only when on and loaded) ----
+    const osmItems = [];
+    if (this.layers.nature && Atlas._osm && Atlas._osm.nature)
+      osmItems.push({ color: "rgb(72,150,92)", label: "Parks / green" }, { color: "rgb(66,120,200)", label: "Water" });
+    if (this.layers.transit && Atlas._osm && Atlas._osm.transit)
+      osmItems.push({ color: "rgb(120,200,255)", label: "Subway" }, { color: "rgb(255,200,120)", label: "Bus stop" });
+    if (this.layers.amenity && Atlas._osm && Atlas._osm.amenity) {
+      const AL = ["Education", "Health", "Civic", "Cooling", "Activity", "Parking"];
+      AMENITY_COLORS.forEach((c, i) => osmItems.push({ color: `rgb(${c.join(",")})`, label: AL[i] }));
+    }
+    if (osmItems.length) blocks.push({ channel: "category", title: "OSM context", items: osmItems });
+
+    return { grain, blocks };
   }
 }

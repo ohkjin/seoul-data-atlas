@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Seoul Data Atlas — How It Was Built</title>
+<style>
+  /* ============================================================
+     Seoul Data Atlas · build case study
+     A committed single dark "night-GIS" world — the product's own
+     identity, translated into a documentary reading experience.
+     ============================================================ */
+  :root {
+    --bg:        #080B11;
+    --surface:   #0F1520;
+    --surface-2: #151C29;
+    --raise:     #1B2434;
+    --line:        rgba(210,222,245,0.09);
+    --line-strong: rgba(210,222,245,0.16);
+    --ink:     #EAEEF6;
+    --ink-dim: #AEB7C8;
+    --muted:   #727C90;
+
+    --amber: #FFB86B;   /* heat — primary accent            */
+    --rose:  #E45C91;   /* heat-sensitive / negative RHSI    */
+    --blue:  #7DA7FF;   /* resilient / cool                  */
+    --cyan:  #46E6E6;   /* data highlight                    */
+    --green: #3FE6A5;
+
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    --wrap: 68ch;
+    --wide: 1040px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 46px 46px, 46px 46px;
+    background-position: -1px -1px;
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.72;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  /* fade the graticule out toward the middle so text stays clean */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background: radial-gradient(120% 80% at 50% 0%, transparent 0%, var(--bg) 60%);
+    pointer-events: none; z-index: 0;
+  }
+  main, .topbar, .hero { position: relative; z-index: 1; }
+
+  a { color: var(--amber); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; border-radius: 2px; }
+
+  /* ---------- layout scaffolding ---------- */
+  .wrap { width: 100%; max-width: var(--wrap); margin-inline: auto; padding-inline: 24px; }
+  .wide { width: 100%; max-width: var(--wide); margin-inline: auto; padding-inline: 24px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::before {
+    content: ""; width: 22px; height: 1px; background: var(--amber); flex: none;
+  }
+
+  h1, h2, h3 { text-wrap: balance; line-height: 1.12; margin: 0; }
+  h2 {
+    font-size: clamp(1.7rem, 3.4vw, 2.35rem);
+    font-weight: 800; letter-spacing: -0.02em;
+    margin-bottom: 0.5em;
+  }
+  h3 {
+    font-size: 1.12rem; font-weight: 700; letter-spacing: -0.01em;
+    color: var(--ink); margin-bottom: 0.35em;
+  }
+  p { margin: 0 0 1.15em; color: var(--ink-dim); }
+  p strong, li strong { color: var(--ink); font-weight: 650; }
+  .lead { font-size: 1.16rem; color: var(--ink); line-height: 1.62; }
+
+  code, .mono { font-family: var(--mono); }
+  p code, li code {
+    font-size: 0.86em; color: var(--cyan);
+    background: rgba(70,230,230,0.08);
+    border: 1px solid rgba(70,230,230,0.16);
+    padding: 0.06em 0.4em; border-radius: 4px;
+  }
+
+  section { padding-block: clamp(56px, 8vw, 104px); }
+  section + section { border-top: 1px solid var(--line); }
+
+  /* ---------- top bar ---------- */
+  .progress { position: fixed; top: 0; left: 0; height: 2px; width: 0%; background: linear-gradient(90deg, var(--rose), var(--amber), var(--blue)); z-index: 40; }
+  .topbar {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; align-items: center; gap: 18px;
+    padding: 11px max(24px, calc((100% - var(--wide)) / 2 + 24px));
+    background: rgba(8,11,17,0.72);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar .mark { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.12em; color: var(--ink); font-weight: 600; white-space: nowrap; }
+  .topbar .mark b { color: var(--amber); }
+  .topbar nav { margin-left: auto; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  .topbar nav::-webkit-scrollbar { display: none; }
+  .topbar nav a {
+    font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); padding: 6px 9px; border-radius: 6px; white-space: nowrap;
+  }
+  .topbar nav a:hover { color: var(--ink); background: var(--surface-2); text-decoration: none; }
+  @media (max-width: 720px) { .topbar nav { display: none; } }
+
+  /* ---------- hero ---------- */
+  .hero { min-height: 92vh; display: flex; flex-direction: column; justify-content: center; padding-block: 80px; overflow: hidden; }
+  #skyfield { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; opacity: 0.9; }
+  .hero::after { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(8,11,17,0.2) 0%, rgba(8,11,17,0.55) 55%, var(--bg) 100%); pointer-events: none; }
+  .hero .wide { position: relative; z-index: 2; }
+  .hero-kicker { font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.28em; text-transform: uppercase; color: var(--amber); margin-bottom: 22px; }
+  .hero h1 { font-size: clamp(2.7rem, 7vw, 5rem); font-weight: 850; letter-spacing: -0.035em; }
+  .hero h1 .dim { color: var(--ink-dim); font-weight: 300; }
+  .hero .tagline { max-width: 46ch; font-size: clamp(1.1rem, 2.2vw, 1.4rem); color: var(--ink-dim); line-height: 1.5; margin-top: 22px; }
+  .hero .tagline em { color: var(--amber); font-style: normal; }
+
+  .statstrip { display: flex; flex-wrap: wrap; gap: 0; margin-top: 46px; border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; background: rgba(15,21,32,0.5); backdrop-filter: blur(4px); max-width: 720px; }
+  .statstrip .stat { flex: 1 1 120px; padding: 16px 18px; border-right: 1px solid var(--line); }
+  .statstrip .stat:last-child { border-right: none; }
+  .statstrip .num { font-family: var(--mono); font-size: 1.5rem; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1; }
+  .statstrip .num .u { font-size: 0.9rem; color: var(--amber); }
+  .statstrip .lab { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-top: 8px; }
+
+  .scrollcue { margin-top: 40px; font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+  .scrollcue .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .scrollcue .dot { animation: none; } }
+
+  /* ---------- reveal-on-scroll ---------- */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.7s ease, transform 0.7s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+
+  /* ---------- callouts / cards ---------- */
+  .note { border-left: 2px solid var(--amber); background: linear-gradient(90deg, rgba(255,184,107,0.06), transparent 80%); padding: 16px 20px; border-radius: 0 8px 8px 0; margin: 1.6em 0; }
+  .note .t { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--amber); margin-bottom: 6px; }
+  .note p:last-child { margin-bottom: 0; }
+  .note.warn { border-color: var(--rose); background: linear-gradient(90deg, rgba(228,92,145,0.07), transparent 80%); }
+  .note.warn .t { color: var(--rose); }
+
+  .twin { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 1.6em 0; }
+  @media (max-width: 680px) { .twin { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; }
+  .panel .tag { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 10px; display: inline-block; }
+  .tag.rose { color: var(--rose); } .tag.blue { color: var(--blue); } .tag.amber { color: var(--amber); }
+  .panel p:last-child { margin-bottom: 0; }
+  .panel p { font-size: 0.98rem; }
+
+  /* problem/solution stack */
+  .ps { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 28px; }
+  .ps-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 26px 28px; position: relative; overflow: hidden; }
+  .ps-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--amber); }
+  .ps-card .idx { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.16em; color: var(--muted); }
+  .ps-card h3 { margin-top: 6px; font-size: 1.24rem; }
+  .ps-card .prob { color: var(--ink-dim); font-size: 0.99rem; }
+  .ps-card .sol { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 0.99rem; color: var(--ink-dim); }
+  .ps-card .sol b { color: var(--ink); }
+
+  ul.clean { list-style: none; margin: 1.2em 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  ul.clean li { padding-left: 26px; position: relative; color: var(--ink-dim); font-size: 0.99rem; }
+  ul.clean li::before { content: ""; position: absolute; left: 4px; top: 0.62em; width: 8px; height: 8px; border-radius: 2px; background: var(--amber); transform: rotate(45deg); }
+  ul.clean li b { color: var(--ink); }
+
+  /* ---------- figures / diagrams ---------- */
+  figure { margin: 2.2em 0; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figure svg text { font-family: var(--mono); }
+  figcaption { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em; color: var(--muted); margin-top: 12px; text-align: center; }
+  .diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 30px 26px; }
+  .svg-ink { fill: var(--ink); } .svg-dim { fill: var(--ink-dim); } .svg-mut { fill: var(--muted); }
+
+  /* formula block */
+  .formula { font-family: var(--mono); font-size: clamp(0.92rem, 2.4vw, 1.18rem); text-align: center; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 12px; padding: 26px 20px; margin: 1.6em 0; letter-spacing: 0.01em; overflow-x: auto; }
+  .formula .op { color: var(--amber); }
+  .formula .term { color: var(--cyan); }
+  .formula .small { display: block; font-size: 0.74rem; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 14px; }
+
+  /* diverging scale */
+  .scalebar { height: 20px; border-radius: 6px; background: linear-gradient(90deg, var(--rose), #C77BA0 30%, var(--amber) 50%, #A9B7D6 70%, var(--blue)); margin: 8px 0 6px; }
+  .scale-ends { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+  .scale-ends b.rose { color: var(--rose); } .scale-ends b.blue { color: var(--blue); } .scale-ends b.amber { color: var(--amber); }
+
+  /* data table */
+  .tablewrap { overflow-x: auto; margin: 1.6em 0; border: 1px solid var(--line); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  thead th { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.file { font-family: var(--mono); font-size: 0.84rem; color: var(--cyan); white-space: nowrap; }
+  td .sz { font-family: var(--mono); color: var(--amber); font-variant-numeric: tabular-nums; }
+  tbody tr:hover { background: rgba(255,255,255,0.018); }
+
+  /* four questions */
+  .qgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 28px; }
+  @media (max-width: 680px) { .qgrid { grid-template-columns: 1fr; } }
+  .qcard { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 10px; }
+  .qcard .qn { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+  .qcard .q { font-size: 1.05rem; font-weight: 700; color: var(--ink); line-height: 1.3; }
+  .qcard .qa { font-size: 0.93rem; color: var(--ink-dim); margin: 0; }
+  .qcard .chip { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border-radius: 20px; align-self: flex-start; margin-top: 2px; }
+  .chip.a { color: var(--rose); background: rgba(228,92,145,0.12); }
+  .chip.b { color: var(--amber); background: rgba(255,184,107,0.12); }
+  .chip.c { color: var(--blue); background: rgba(125,167,255,0.12); }
+  .chip.d { color: var(--cyan); background: rgba(70,230,230,0.12); }
+
+  /* stack list (pipeline / modules rendered via svg mostly) */
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 20px; font-size: 0.95rem; margin: 1.4em 0; }
+  .kv dt { font-family: var(--mono); font-size: 0.82rem; color: var(--amber); white-space: nowrap; }
+  .kv dd { margin: 0; color: var(--ink-dim); }
+
+  /* footer */
+  footer { padding-block: 60px 80px; border-top: 1px solid var(--line-strong); }
+  footer .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 30px; }
+  footer h4 { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  footer ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+  footer li { font-size: 0.9rem; color: var(--ink-dim); }
+  footer li span.m { font-family: var(--mono); color: var(--muted); font-size: 0.82rem; }
+  .signoff { margin-top: 44px; padding-top: 24px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.06em; color: var(--muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .signoff .status { color: var(--green); }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+
+<header class="topbar">
+  <span class="mark"><b>◆</b> SEOUL DATA ATLAS · build log</span>
+  <nav aria-label="Sections">
+    <a href="#problem">Problem</a>
+    <a href="#rhsi">RHSI</a>
+    <a href="#data">Data</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#problems">Solutions</a>
+    <a href="#design">Design</a>
+    <a href="#delivers">Delivers</a>
+  </nav>
+</header>
+
+<main>
+  <!-- ============ HERO ============ -->
+  <section class="hero" id="top">
+    <canvas id="skyfield" aria-hidden="true"></canvas>
+    <div class="wide">
+      <div class="hero-kicker">A development case study</div>
+      <h1>Mapping how the<br>heat <span class="dim">moves</span> a city's<br>retail.</h1>
+      <p class="tagline">Seoul Data Atlas is an interactive night-GIS dashboard that turns a multi-source urban dataset into a place you can <em>explore</em> — across 422 neighborhoods, 25 districts, and every day of 2024.</p>
+
+      <div class="statstrip" role="list" aria-label="Project at a glance">
+        <div class="stat" role="listitem"><div class="num">422</div><div class="lab">Dongs</div></div>
+        <div class="stat" role="listitem"><div class="num">25</div><div class="lab">Districts</div></div>
+        <div class="stat" role="listitem"><div class="num">366</div><div class="lab">Days · 2024</div></div>
+        <div class="stat" role="listitem"><div class="num">~84</div><div class="lab">Industries</div></div>
+        <div class="stat" role="listitem"><div class="num">0<span class="u"> ✕</span></div><div class="lab">Backend</div></div>
+      </div>
+
+      <div class="scrollcue"><span class="dot"></span> Scroll — the problem, then the build</div>
+    </div>
+  </section>
+
+  <!-- ============ PROBLEM ============ -->
+  <section id="problem">
+    <div class="wrap reveal">
+      <p class="eyebrow">The problem</p>
+      <h2>Two problems, really — one about heat, one about drowning in data.</h2>
+      <p class="lead">The dataset behind this project — <strong>Urban Heat / Urban Sales (UHUS)</strong> — pairs Seoul's daily weather and card-sales records with urban-context features and a machine-learning explanation of them. Buried inside was a question worth surfacing.</p>
+
+      <div class="twin">
+        <div class="panel">
+          <span class="tag rose">The analytical question</span>
+          <p>Does extreme heat actually suppress retail activity in Seoul — and if so, <strong>where</strong>, for <strong>which kinds of business</strong>, and alongside <strong>which characteristics</strong> of a neighborhood? A single citywide average hides all of that.</p>
+        </div>
+        <div class="panel">
+          <span class="tag blue">The build challenge</span>
+          <p>Turn weather, sales, features, SHAP explanations, and geometry into something a non-expert can <strong>explore spatially and through time</strong> — without burying them under every number at once.</p>
+        </div>
+      </div>
+
+      <p>Both problems shaped every decision that follows. The first drove the analytics and the map; the second drove an information hierarchy that took several iterations to get right. This page walks through both.</p>
+    </div>
+  </section>
+
+  <!-- ============ RHSI ============ -->
+  <section id="rhsi">
+    <div class="wrap reveal">
+      <p class="eyebrow">The anchor metric</p>
+      <h2>Everything hangs off one number: RHSI.</h2>
+      <p>Rather than let users wade through raw sales, the atlas is organized around a single derived index — the <strong>Retail Heat-Sensitivity Index</strong>. It compares what a neighborhood sells on scorching days against a mild baseline, on a log scale so rises and falls read symmetrically.</p>
+
+      <div class="formula">
+        RHSI <span class="op">=</span> log ( <span class="term">mean retail sales on hot days</span> <span class="op">&divide;</span> <span class="term">mean retail sales on mild days</span> )
+        <span class="small">A hot day = apparent temp ≥ 33°C · A mild day = 18–26°C, no rain, non-holiday</span>
+      </div>
+
+      <div class="scalebar" role="img" aria-label="Diverging color scale from heat-sensitive to resilient"></div>
+      <div class="scale-ends">
+        <span><b class="rose">RHSI &lt; 0</b> — sales fall on heat (heat-sensitive)</span>
+        <span><b class="amber">0</b></span>
+        <span><b class="blue">RHSI &gt; 0</b> — sales hold or rise</span>
+      </div>
+
+      <p style="margin-top:1.6em">When the interface needs a plain-language number, it converts the index to an approximate percentage change with <code>% ≈ (exp(RHSI) − 1) × 100</code>. The same metric feeds the map color, the KPI readouts, the histogram, and the district rankings — so wherever you are, you're reading the same yardstick.</p>
+
+      <div class="note warn">
+        <div class="t">Stated plainly in the product</div>
+        <p>RHSI is an <strong>association</strong>, not a cause. It describes an observed hot-vs-mild difference; it does not prove heat is the reason. That honesty is built into the copy, not hidden in a footnote.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DATA FOUNDATION ============ -->
+  <section id="data">
+    <div class="wrap reveal">
+      <p class="eyebrow">Data foundation</p>
+      <h2>A Python pipeline bakes everything down to static files.</h2>
+      <p>The single biggest architectural bet: <strong>there is no backend</strong>. Every aggregate, statistic, and SHAP summary is precomputed offline by a handful of Python scripts and written to static JSON. The browser just fetches and draws. No server, no database, no API to keep alive — the whole thing hosts on plain static storage.</p>
+    </div>
+
+    <div class="wide reveal">
+      <figure class="diagram">
+        <svg viewBox="0 0 960 210" role="img" aria-label="Data lineage: input datasets become features, then a computed index, then dashboard views">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#727C90"/>
+            </marker>
+          </defs>
+          <!-- stage boxes -->
+          <g font-family="var(--mono)">
+            <!-- INPUT -->
+            <rect x="14" y="46" width="210" height="118" rx="12" fill="#0F1520" stroke="rgba(228,92,145,0.4)"/>
+            <text x="34" y="74" fill="#E45C91" font-size="12" letter-spacing="2">INPUT</text>
+            <text x="34" y="100" class="svg-dim" font-size="13">Daily_Weather.csv</text>
+            <text x="34" y="121" class="svg-dim" font-size="13">sales.csv</text>
+            <text x="34" y="142" class="svg-dim" font-size="13">Dong_Geometry.geojson</text>
+            <!-- FEATURE -->
+            <rect x="264" y="46" width="200" height="118" rx="12" fill="#0F1520" stroke="rgba(255,184,107,0.4)"/>
+            <text x="284" y="74" fill="#FFB86B" font-size="12" letter-spacing="2">FEATURE</text>
+            <text x="284" y="100" class="svg-dim" font-size="13">Urban_Features.csv</text>
+            <text x="284" y="121" class="svg-dim" font-size="13">shap_result.csv</text>
+            <text x="284" y="142" class="svg-dim" font-size="13">6 sales themes</text>
+            <!-- INDEX -->
+            <rect x="504" y="46" width="180" height="118" rx="12" fill="#0F1520" stroke="rgba(70,230,230,0.4)"/>
+            <text x="524" y="74" fill="#46E6E6" font-size="12" letter-spacing="2">INDEX</text>
+            <text x="524" y="100" class="svg-dim" font-size="13">RHSI per dong</text>
+            <text x="524" y="121" class="svg-dim" font-size="13">gu / city means</text>
+            <text x="524" y="142" class="svg-dim" font-size="13">hot / mild stats</text>
+            <!-- VIEW -->
+            <rect x="724" y="46" width="222" height="118" rx="12" fill="#0F1520" stroke="rgba(125,167,255,0.4)"/>
+            <text x="744" y="74" fill="#7DA7FF" font-size="12" letter-spacing="2">VIEW</text>
+            <text x="744" y="100" class="svg-dim" font-size="13">14 static JSON files</text>
+            <text x="744" y="121" class="svg-dim" font-size="13">map · charts · timeline</text>
+            <text x="744" y="142" class="svg-dim" font-size="13">lineage panel</text>
+          </g>
+          <!-- arrows -->
+          <line x1="228" y1="105" x2="260" y2="105" stroke="#727C90" stroke-width="1.5" marker-end="url(#arrow)"/>
+          <line x1="468" y1="105" x2="500" y2="105" stroke="#727C90" stroke-width="1.5" marker-end="url(#arrow)"/>
+          <line x1="688" y1="105" x2="720" y2="105" stroke="#727C90" stroke-width="1.5" marker-end="url(#arrow)"/>
+          <text x="480" y="24" class="svg-mut" font-family="var(--mono)" font-size="11" letter-spacing="3" text-anchor="middle">D A T A   L I N E A G E</text>
+        </svg>
+        <figcaption>The lineage the Detail panel exposes to users — click any stage to inspect it.</figcaption>
+      </figure>
+    </div>
+
+    <div class="wrap reveal">
+      <h3>What the pipeline does</h3>
+      <dl class="kv">
+        <dt>prepare_data.py</dt><dd>Simplifies 422 dong polygons, dissolves them into 25 gu, joins RHSI + features + SHAP by <code>dong_code</code>, and computes hot/mild industry statistics and daily series.</dd>
+        <dt>prepare_sales_groups.py</dt><dd>Maps ~84 industry columns into six retail themes and writes the per-gu and per-dong daily group series.</dd>
+        <dt>fetch_osm_roads.py</dt><dd>Pulls arterial + mid-tier roads from OpenStreetMap via Overpass and simplifies them.</dd>
+        <dt>fetch_osm_buildings.py</dt><dd>Fetches building footprints one district at a time (a citywide query is too heavy), with retries and resumable progress.</dd>
+        <dt>tag_buildings.py</dt><dd>Uses a Shapely spatial index to stamp each building with its gu/dong code — the key that later lets the map draw only one district's buildings.</dd>
+      </dl>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Runtime file</th><th>What it carries</th><th>Size</th></tr></thead>
+          <tbody>
+            <tr><td class="file">dong_metrics.json</td><td>RHSI, rank, urban features & SHAP per dong</td><td><span class="sz">—</span></td></tr>
+            <tr><td class="file">industry_stats.json</td><td>Hot/mild/sensitivity for ~84 industries, city + each gu</td><td><span class="sz">—</span></td></tr>
+            <tr><td class="file">gu_daily_timeseries.json</td><td>25 gu × 366 days of temp + sales</td><td><span class="sz">—</span></td></tr>
+            <tr><td class="file">dong_group_daily.json</td><td>Per-dong daily arrays, six themes</td><td><span class="sz">~9.3 MB</span></td></tr>
+            <tr><td class="file">buildings.json</td><td>OSM footprints, tagged by gu/dong</td><td><span class="sz">~61 MB</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:0.9rem;color:var(--muted)">14 files load at startup through one <code>Promise.all</code> — roughly 76 MB before compression, which set up the performance problem on the next stretch.</p>
+    </div>
+  </section>
+
+  <!-- ============ ARCHITECTURE ============ -->
+  <section id="architecture">
+    <div class="wrap reveal">
+      <p class="eyebrow">Architecture</p>
+      <h2>Six plain-JavaScript modules, no build step.</h2>
+      <p>The frontend is deliberately low-ceremony: vanilla JavaScript in global modules loaded in dependency order, so editing means <em>refresh the browser</em> — no compile, no bundler. Each module owns one concern, and <code>data.js</code> sits at the base feeding everything above it.</p>
+    </div>
+
+    <div class="wide reveal">
+      <figure class="diagram">
+        <svg viewBox="0 0 960 320" role="img" aria-label="Module dependency stack from data.js at the base up to app.js coordinating the rest">
+          <g font-family="var(--mono)">
+            <!-- app.js on top spanning -->
+            <rect x="180" y="20" width="600" height="52" rx="10" fill="#151C29" stroke="rgba(255,184,107,0.55)"/>
+            <text x="480" y="44" text-anchor="middle" fill="#FFB86B" font-size="14">app.js</text>
+            <text x="480" y="61" text-anchor="middle" class="svg-mut" font-size="11">state · init · events · coordination</text>
+
+            <!-- middle row: map / charts / timeline / panels -->
+            <g>
+              <rect x="40" y="120" width="205" height="70" rx="10" fill="#0F1520" stroke="rgba(125,167,255,0.45)"/>
+              <text x="142" y="150" text-anchor="middle" fill="#7DA7FF" font-size="13">map.js</text>
+              <text x="142" y="169" text-anchor="middle" class="svg-mut" font-size="10.5">MapLibre + deck.gl layers</text>
+
+              <rect x="265" y="120" width="205" height="70" rx="10" fill="#0F1520" stroke="rgba(70,230,230,0.45)"/>
+              <text x="367" y="150" text-anchor="middle" fill="#46E6E6" font-size="13">charts.js</text>
+              <text x="367" y="169" text-anchor="middle" class="svg-mut" font-size="10.5">ECharts + Insights</text>
+
+              <rect x="490" y="120" width="205" height="70" rx="10" fill="#0F1520" stroke="rgba(63,230,165,0.45)"/>
+              <text x="592" y="150" text-anchor="middle" fill="#3FE6A5" font-size="13">timeline.js</text>
+              <text x="592" y="169" text-anchor="middle" class="svg-mut" font-size="10.5">playback UI</text>
+
+              <rect x="715" y="120" width="205" height="70" rx="10" fill="#0F1520" stroke="rgba(228,92,145,0.45)"/>
+              <text x="817" y="150" text-anchor="middle" fill="#E45C91" font-size="13">panels.js</text>
+              <text x="817" y="169" text-anchor="middle" class="svg-mut" font-size="10.5">lineage · metadata</text>
+            </g>
+
+            <!-- base: data.js -->
+            <rect x="40" y="238" width="880" height="60" rx="10" fill="#151C29" stroke="rgba(210,222,245,0.28)"/>
+            <text x="480" y="264" text-anchor="middle" class="svg-ink" font-size="14">data.js — the Atlas store</text>
+            <text x="480" y="283" text-anchor="middle" class="svg-mut" font-size="11">loads JSON · lookups · aggregation · statistics · color scales</text>
+
+            <!-- connectors -->
+            <g stroke="rgba(210,222,245,0.18)" stroke-width="1.4">
+              <line x1="142" y1="238" x2="142" y2="190"/>
+              <line x1="367" y1="238" x2="367" y2="190"/>
+              <line x1="592" y1="238" x2="592" y2="190"/>
+              <line x1="817" y1="238" x2="817" y2="190"/>
+              <line x1="142" y1="120" x2="300" y2="72"/>
+              <line x1="367" y1="120" x2="420" y2="72"/>
+              <line x1="592" y1="120" x2="560" y2="72"/>
+              <line x1="817" y1="120" x2="660" y2="72"/>
+            </g>
+          </g>
+        </svg>
+        <figcaption>data.js feeds the four view modules; app.js coordinates state and pushes scope changes to all of them.</figcaption>
+      </figure>
+    </div>
+
+    <div class="wrap reveal">
+      <h3>Why deck.gl is <em>overlaid</em>, not interleaved</h3>
+      <p>The map is MapLibre GL for the basemap with a deck.gl overlay for every data layer. deck.gl is layered <strong>on top</strong> of MapLibre rather than woven into its render pipeline — a deliberate call. Interleaving large heatmaps and additive glow with the tile pipeline produces depth-buffer and ordering artifacts; overlaying avoids them while still letting extruded buildings self-occlude through deck's own depth buffer.</p>
+      <figure class="diagram">
+        <svg viewBox="0 0 720 200" role="img" aria-label="Two stacked planes: MapLibre basemap below, deck.gl data overlay above">
+          <g font-family="var(--mono)">
+            <g transform="translate(140 96)">
+              <polygon points="0,40 300,40 440,-10 140,-10" fill="#0F1520" stroke="rgba(210,222,245,0.25)"/>
+              <text x="150" y="26" class="svg-mut" font-size="12">MapLibre — CARTO basemap</text>
+            </g>
+            <g transform="translate(140 40)">
+              <polygon points="0,40 300,40 440,-10 140,-10" fill="rgba(255,184,107,0.10)" stroke="rgba(255,184,107,0.5)"/>
+              <text x="150" y="26" fill="#FFB86B" font-size="12">deck.gl — heatmap · points · buildings</text>
+            </g>
+            <line x1="470" y1="60" x2="470" y2="120" stroke="#727C90" stroke-width="1.3" stroke-dasharray="3 3"/>
+            <text x="486" y="66" class="svg-mut" font-size="11">overlay,</text>
+            <text x="486" y="82" class="svg-mut" font-size="11">not interleaved</text>
+          </g>
+        </svg>
+        <figcaption>Two clean planes — the artifact-free way to run big additive layers over vector tiles.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============ HARD PROBLEMS ============ -->
+  <section id="problems">
+    <div class="wrap reveal">
+      <p class="eyebrow">Hard problems &amp; how they were solved</p>
+      <h2>Five decisions that made or broke the atlas.</h2>
+      <p>Every interesting build has a handful of moments where the obvious approach fails and you have to choose. These were ours.</p>
+
+      <div class="ps">
+        <div class="ps-card reveal">
+          <span class="idx">01 · PERFORMANCE</span>
+          <h3>Drawing a whole city without melting the browser</h3>
+          <p class="prob"><strong>Problem:</strong> the building footprints alone are ~61 MB and hundreds of thousands of polygons. Rendering them citywide tanks the frame rate and can exhaust memory.</p>
+          <p class="sol"><strong>Solution:</strong> buildings are <b>off by default</b> and hidden below zoom 11.25. The <code>tag_buildings.py</code> step stamps every polygon with a gu/dong code, so when you drill into a district the map draws <b>only that district's</b> buildings. Add simplified + rounded geometry, a static/dynamic layer split, cached transforms, and mid-tier roads that only appear after you drill — and the city stays fluid.</p>
+        </div>
+
+        <div class="ps-card reveal">
+          <span class="idx">02 · CARTOGRAPHY</span>
+          <h3>Making a signed index legible on a map</h3>
+          <p class="prob"><strong>Problem:</strong> RHSI is signed and skewed — most values cluster just below zero. A naive quantile scale collapses everything into one midpoint color; a linear scale drowns the interesting negatives.</p>
+          <p class="sol"><strong>Solution:</strong> a <b>sign-aware quantile scale</b>. Negative and non-negative values are ranked <b>separately</b>, with amber pinned at zero — so the meaning of zero is preserved and both the heat-sensitive (rose) and resilient (blue) sides get their full range of contrast.</p>
+        </div>
+
+        <div class="ps-card reveal">
+          <span class="idx">03 · INTERACTION</span>
+          <h3>Decoupling where you look from what you aggregate</h3>
+          <p class="prob"><strong>Problem:</strong> "zoom level" and "data grain" are different ideas. A user might want the camera on one district but the data aggregated citywide — or vice versa.</p>
+          <p class="sol"><strong>Solution:</strong> <b>target area</b> and <b>granularity</b> are independent controls. And because aggregating a single district at "Seoul" grain is meaningless, granularity is constrained so it can never be <b>coarser than the target</b> — the invalid options disable themselves and snap to a sensible level.</p>
+        </div>
+
+        <div class="ps-card reveal">
+          <span class="idx">04 · ANALYTICS</span>
+          <h3>Grounding the charts in the real study, not generic templates</h3>
+          <p class="prob"><strong>Problem:</strong> a first pass reused off-the-shelf chart renderers. They looked fine but said nothing specific — they didn't match what the RHSI research actually found.</p>
+          <p class="sol"><strong>Solution:</strong> the Insights column was rebuilt directly on the real <b>RHSI, SHAP, and industry</b> data in an <b>editorial-scientific</b> style — each figure is a bold finding sentence, a restrained chart, and a one-line caption. The numbers now match the source study (apparel is the most heat-sensitive retail; ΔDaypop and land price track RHSI most strongly).</p>
+        </div>
+
+        <div class="ps-card reveal">
+          <span class="idx">05 · TIME</span>
+          <h3>Treating time as a first-class dimension</h3>
+          <p class="prob"><strong>Problem:</strong> a static map can't show that heat and sales are a moving story across 366 days — but re-rendering a full chart every animation frame is far too expensive.</p>
+          <p class="sol"><strong>Solution:</strong> an animated timeline plays or scrubs the whole year with a temperature line and normalized sales area. The moving day cursor is a <b>cheap incremental update</b>, kept separate from the full chart render — so playback stays smooth while the map's heat field tracks each day's temperature.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DESIGN JOURNEY ============ -->
+  <section id="design">
+    <div class="wrap reveal">
+      <p class="eyebrow">The design journey</p>
+      <h2>The second problem: users were being bombarded.</h2>
+      <p>The analytics worked — but early builds showed the same facts three times over. The hover tooltip, the detail panel, and the Insights charts all echoed RHSI, the most-sensitive industry, and the hot/mild day counts. It felt like an information dump. Fixing that took a deliberate information hierarchy.</p>
+
+      <ul class="clean">
+        <li><b>Key indicators moved to the top of Insights</b> — the at-a-glance numbers live in one place, first, where they're noticed.</li>
+        <li><b>The detail panel went back to exploration only</b> — dataset lineage and definitions, not a repeat of the KPIs.</li>
+        <li><b>Charts became dataset-specific</b> — the whole project shows its full five-figure story, but selecting a single dataset shows just the <b>2–3 graphs that fit it</b>, so no view over-explains.</li>
+        <li><b>Panels are contextual</b> — with nothing selected, Insights and detail step aside and the map takes the whole stage. They appear when you pick something to look at.</li>
+      </ul>
+
+      <div class="note">
+        <div class="t">The principle underneath</div>
+        <p>Surface the summary before the detail; let each surface do <strong>one</strong> job. The map is the star, the KPIs are the glance, the charts are the argument, and the lineage panel is the reference — never all four saying the same thing at once.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ WHAT IT DELIVERS ============ -->
+  <section id="delivers">
+    <div class="wrap reveal">
+      <p class="eyebrow">What it delivers</p>
+      <h2>Four questions, one place to answer them.</h2>
+      <p>Everything above exists to let someone move fluidly between these four questions — spatially, by sector, by urban characteristic, and through time.</p>
+
+      <div class="qgrid">
+        <div class="qcard reveal">
+          <span class="chip a">Where</span>
+          <div class="qn">Question 01</div>
+          <div class="q">Where is retail most sensitive to heat?</div>
+          <p class="qa">Map RHSI at Seoul, district, or neighborhood grain; rank and inspect any dong against the whole city.</p>
+        </div>
+        <div class="qcard reveal">
+          <span class="chip b">Who</span>
+          <div class="qn">Question 02</div>
+          <div class="q">Which kinds of retail change most on hot days?</div>
+          <p class="qa">Compare mean hot-vs-mild sales across ~84 industries and six themes; find the strongest winners and losers.</p>
+        </div>
+        <div class="qcard reveal">
+          <span class="chip c">Why</span>
+          <div class="qn">Question 03</div>
+          <div class="q">Which urban characteristics go with the pattern?</div>
+          <p class="qa">Explore land use, accessibility, mobility, and demographics through SHAP contributions and feature-vs-RHSI scatter.</p>
+        </div>
+        <div class="qcard reveal">
+          <span class="chip d">When</span>
+          <div class="qn">Question 04</div>
+          <div class="q">How do temperature and sales move through 2024?</div>
+          <p class="qa">Play or scrub all 366 days; watch the heat field and six themed sales rings respond day by day.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LIMITATIONS ============ -->
+  <section id="limits">
+    <div class="wrap reveal">
+      <p class="eyebrow">Kept honest</p>
+      <h2>What it deliberately does not claim.</h2>
+      <p>A research prototype earns trust by being clear about its edges. These limits are stated in the product and its documentation, not buried.</p>
+      <ul class="clean">
+        <li><b>Association, not causation</b> — RHSI describes a hot-vs-mild difference; it doesn't identify heat as the cause.</li>
+        <li><b>Card sales ≠ all activity</b> — and district/city figures use simple means, not transaction- or population-weighting.</li>
+        <li><b>Per-dong industry detail is the top 20 by volume</b> — the long tail is summarized, not itemized everywhere.</li>
+        <li><b>The dot-density layer is synthetic</b> — deterministic sample points encoding area-level magnitude, never real stores or people.</li>
+        <li><b>Building heights are often estimated</b> — from OSM levels or a type-based fallback; visual context, not a survey model.</li>
+        <li><b>Desktop-first</b> — the three-column analytical layout targets a wide workspace; full mobile and accessibility work remain open.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer>
+    <div class="wide">
+      <div class="cols">
+        <div>
+          <h4>Browser stack</h4>
+          <ul>
+            <li>HTML5 · CSS3 · vanilla JS</li>
+            <li>MapLibre GL JS <span class="m">4</span></li>
+            <li>deck.gl <span class="m">9</span></li>
+            <li>Apache ECharts <span class="m">5</span> · ECharts GL <span class="m">2</span></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Data prep</h4>
+          <ul>
+            <li>Python 3</li>
+            <li>pandas</li>
+            <li>Shapely</li>
+            <li>Requests · Overpass API</li>
+          </ul>
+        </div>
+        <div>
+          <h4>Sources</h4>
+          <ul>
+            <li>KMA · Seoul Open Data</li>
+            <li>Seoul AI Foundation</li>
+            <li>EGIS · MOLIT · Seoul Metro</li>
+            <li>OpenStreetMap contributors</li>
+          </ul>
+        </div>
+        <div>
+          <h4>Shape of it</h4>
+          <ul>
+            <li>6 JS modules · no build</li>
+            <li>14 static JSON files</li>
+            <li>0 backend services</li>
+            <li>422 dongs · 25 gu · 2024</li>
+          </ul>
+        </div>
+      </div>
+      <div class="signoff">
+        <span>Seoul Data Atlas — Urban Heat / Urban Sales</span>
+        <span class="status">● research prototype · map-first</span>
+      </div>
+    </div>
+  </footer>
+</main>
+
+<script>
+  // ---- scroll progress ----
+  const progress = document.getElementById('progress');
+  const onScroll = () => {
+    const h = document.documentElement;
+    const max = h.scrollHeight - h.clientHeight;
+    progress.style.width = (max > 0 ? (h.scrollTop / max) * 100 : 0) + '%';
+  };
+  document.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  // ---- reveal on scroll ----
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduce && 'IntersectionObserver' in window) {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+  } else {
+    document.querySelectorAll('.reveal').forEach((el) => el.classList.add('in'));
+  }
+
+  // ---- hero: ambient "night Seoul" field ----
+  // A dark map-like scatter of glowing dong points along the heat scale,
+  // with a few faint road-like threads. Subtle, slow, reduced-motion aware.
+  (function () {
+    const canvas = document.getElementById('skyfield');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const heat = ['#E45C91', '#C77BA0', '#FFB86B', '#A9B7D6', '#7DA7FF'];
+    let w, h, dpr, pts = [], lines = [], t = 0, raf = null;
+
+    function seedRand(s) { return function () { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; }; }
+    const rnd = seedRand(20240711);
+
+    function build() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      w = canvas.clientWidth; h = canvas.clientHeight;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // cluster points loosely toward center-left, like a city footprint
+      const N = Math.min(230, Math.round(w * h / 5200));
+      pts = [];
+      for (let i = 0; i < N; i++) {
+        const cx = 0.16 + rnd() * 0.72, cy = 0.12 + rnd() * 0.82;
+        pts.push({
+          x: cx * w, y: cy * h,
+          r: 0.8 + rnd() * 2.2,
+          c: heat[(rnd() * heat.length) | 0],
+          ph: rnd() * Math.PI * 2,
+          sp: 0.4 + rnd() * 0.9
+        });
+      }
+      // a handful of faint threads connecting nearby points (roads)
+      lines = [];
+      for (let i = 0; i < pts.length; i++) {
+        let best = -1, bd = 1e9;
+        for (let j = i + 1; j < pts.length; j++) {
+          const dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y, d = dx * dx + dy * dy;
+          if (d < bd && d > 400) { bd = d; best = j; }
+        }
+        if (best >= 0 && bd < 16000 && rnd() > 0.55) lines.push([i, best]);
+      }
+    }
+
+    function frame() {
+      ctx.clearRect(0, 0, w, h);
+      // threads
+      ctx.lineWidth = 1;
+      for (const [a, b] of lines) {
+        const p = pts[a], q = pts[b];
+        ctx.strokeStyle = 'rgba(255,184,107,0.05)';
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+      }
+      // glowing points
+      for (const p of pts) {
+        const tw = 0.5 + 0.5 * Math.sin(t * 0.02 * p.sp + p.ph);
+        const a = 0.25 + tw * 0.6;
+        ctx.beginPath();
+        ctx.fillStyle = p.c;
+        ctx.globalAlpha = a * 0.9;
+        ctx.shadowColor = p.c; ctx.shadowBlur = 8 + tw * 10;
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+      t += 1;
+      raf = requestAnimationFrame(frame);
+    }
+
+    function start() {
+      build();
+      if (reduce) { // draw one static frame
+        cancelAnimationFrame(raf);
+        t = 40; frame(); cancelAnimationFrame(raf); raf = null;
+      } else if (!raf) { raf = requestAnimationFrame(frame); }
+    }
+
+    let rt;
+    window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(start, 180); });
+    start();
+  })();
+</script>
+</body>
+</html>

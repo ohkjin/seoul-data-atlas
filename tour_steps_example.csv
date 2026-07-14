@@ -1,0 +1,17 @@
+step,section,target,caption,dataset,representation,variable,selection,play,extra,dwell_seconds
+1,Project Detail,detail,"This is the Project Detail page for UHUS. Every dataset is reached from here, all measured at the neighborhood (dong) level across Seoul's 422 neighborhoods.",project,,,seoul,no,reset,9
+2,Weather,detail,"The daily weather data records each neighborhood's max temperature, precipitation, humidity, and apparent temperature for 2024. It defines hot days (apparent temp >= 33C) and mild days (18-26C, no rain, no holiday).",weather,heatfield,,seoul,no,,9
+3,Weather,map,"Because weather is temporal, the 3D map animates over time. Play the sequence to watch the temperature field rise and fall across the year, peaking in mid-summer.",weather,heatfield,,seoul,yes,,10
+4,Sales,detail,"The sales data records daily card-transaction amounts per neighborhood, the behavioral signal behind retail heat sensitivity. A retail total sums the 19 core retail sectors.",sales,rings,,gu,no,,9
+5,Sales,map,"The 85 industries are grouped into 6 themes, each drawn as one ring per neighborhood, pulsing day by day.",sales,rings,,gu,yes,,9
+6,Sales,map,"Differences can also be shown by choosing a different form: columns, a flat choropleth, or a dominant-group view.",sales,columns,,gu,no,cycle-forms,9
+7,Urban Features,detail,"The Urban Features dataset describes each neighborhood's context (demographics, accessibility, land use, built environment) across 21 variables that explain why heat sensitivity differs.",context,choropleth,land_price,seoul,no,,9
+8,Urban Features,map,"Shown as a choropleth, each urban feature can be compared directly against the heat-sensitivity index.",context,choropleth,elderly_share,seoul,no,,8
+9,Urban Features,map,"Hovering over a neighborhood shows its name and details: the mapped value, its heat-sensitivity index, and its citywide rank.",context,choropleth,green_space_share,seoul,no,hover,8
+10,SHAP,detail,"The SHAP dataset explains the model: for each neighborhood, how much every input pushed the predicted index up or down.",shap,signedcols,,seoul,no,,9
+11,SHAP,map,"It decomposes the index into contributing factors, ranking which urban features drive each neighborhood's result. It explains model behavior, not causation.",shap,signedcols,,seoul,no,cycle-groups,10
+12,RHSI,detail,"The RHSI, the Retail Heat-Sensitivity Index, is the study's main output: the log-ratio of average retail sales on hot days versus mild days, per neighborhood.",rhsi,choropleth,,seoul,no,,9
+13,RHSI,map,"A negative value means sales fall on hot days, so that neighborhood is heat-sensitive. The map colors each neighborhood by this index.",rhsi,choropleth,,seoul,no,,9
+14,RHSI,map,"You can choose a target area, the whole of Seoul, a district (gu), or a neighborhood (dong), by clicking directly on the map or through the spatial selection boxes.",rhsi,choropleth,,click-gu,no,,8
+15,RHSI,map,"",rhsi,choropleth,,box-dong,no,,6
+16,RHSI,map,"The map panel also offers other options, such as a flat 2D view or automatic rotation.",rhsi,choropleth,,dong,no,2d-then-rotate,9

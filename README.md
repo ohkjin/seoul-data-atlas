@@ -550,6 +550,14 @@ OpenStreetMap
 
 ## Rebuilding the data
 
+> **Not committed to git.** The large / regenerable OpenStreetMap outputs are `.gitignore`d and are **not**
+> in the repository: `data/buildings.json`, `data/nature.json`, `data/transit.json`, `data/amenity.json`
+> (plus `*_fetch_progress.json`). After a fresh clone, regenerate them with the `fetch_osm_*.py` scripts
+> below (needs network / Overpass). Until then the page still runs — the base map, roads, and all
+> data-driven layers work — but the 3D building extrusion and the Nature / Transit / Amenities overlay
+> layers render empty. The committed core JSON (`data/roads.json` and the `prepare_data` outputs) require
+> the private `UHUS/*.csv` source files, which are also not in the repo.
+
 ### Install Python dependencies
 
 No lock file is currently provided. Install the libraries imported by the scripts:
@@ -637,6 +645,18 @@ python scripts/tag_buildings.py
 ```
 
 This uses Shapely spatial indexes to assign gu and dong codes to each building's representative point. It rewrites `data/buildings.json` in place. Tagging enables the browser to restrict buildings to a drilled region instead of rendering the entire city collection.
+
+#### 6. Fetch the Urban Environment (OSM) overlay layers
+
+```bash
+python scripts/fetch_osm_transit.py    # subway lines + stations, bus stops  -> data/transit.json
+python scripts/fetch_osm_amenity.py    # curated facilities (education/health/civic/…) -> data/amenity.json
+python scripts/fetch_osm_nature.py     # parks/forest (green) + water polygons -> data/nature.json
+```
+
+Like the building fetch, these run per gu against public Overpass with endpoint rotation, retries, and
+polite sleeps. `fetch_osm_nature.py` supports `--resume`. They power the optional **URBAN ENV (OSM)**
+map toggles (Nature · Transit · Amenities), which lazy-load on first enable and are off by default.
 
 ### Pipeline validation checklist
 
@@ -776,7 +796,8 @@ The application can be hosted on any static web server that preserves the reposi
 
 ### Large-file warning
 
-`data/buildings.json` is approximately **61 MB**:
+`data/buildings.json` is approximately **64 MB** and is therefore **`.gitignore`d** (regenerate it with
+`scripts/fetch_osm_buildings.py`; see [Rebuilding the data](#rebuilding-the-data)):
 
 - GitHub warns for files larger than 50 MB.
 - GitHub rejects regular Git blobs larger than 100 MB.
@@ -791,7 +812,9 @@ Practical options:
 4. Split buildings by gu and load them on demand.
 5. Convert the data to vector tiles or a more compact binary geospatial format.
 
-The current loader treats buildings as required. If the file is omitted, update `Atlas.load()` and the building layer to handle an unavailable optional asset; adding it to `.gitignore` alone will make a fresh deployment fail.
+`Atlas.load()` now treats `buildings.json` as **optional**: a missing file falls back to `null`, so a fresh
+clone boots normally and simply renders no building extrusion (the building-mix representation falls back to
+stacked columns) until you regenerate the file.
 
 ### Cache guidance
 

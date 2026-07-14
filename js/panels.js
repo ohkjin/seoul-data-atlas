@@ -7,6 +7,7 @@ const ICONS = {
   sun: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>`,
   sales: `<svg viewBox="0 0 24 24"><path d="M4 18V9"/><path d="M10 18V5"/><path d="M16 18v-7"/><path d="M22 18v-4"/><path d="M2 18h20"/></svg>`,
   map: `<svg viewBox="0 0 24 24"><path d="M4 6l6-2 4 2 6-2v14l-6 2-4-2-6 2z"/><path d="M10 4v14"/><path d="M14 6v14"/></svg>`,
+  pin: `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.7-6-10a6 6 0 0 1 12 0c0 4.3-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>`,
   thermometer: `<svg viewBox="0 0 24 24"><path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0z"/><path d="M12 9v7"/></svg>`,
   flag: `<svg viewBox="0 0 24 24"><path d="M6 3v18"/><path d="M6 6c2-1.5 4-.5 6 .5s4 2 6 .5v8c-2 1.5-4 .5-6-.5s-4-2-6-.5"/></svg>`,
   building: `<svg viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V9l7-4 7 4v12"/><path d="M9 21v-6h6v6"/></svg>`,
@@ -90,18 +91,72 @@ const LINEAGE = {
   ] },
 };
 
+// Real source-file catalog for the Project Detail table — grouped by TRUE stage.
+// Geometry is a spatial INPUT; shap_result is not a feature but the model's
+// EXPLANATION (each feature's contribution to the RHSI prediction) — both were
+// misfiled by the old view-centric lineage. The project table keeps each value to
+// a few words; the full story lives on each dataset's own detail page. Flags mark
+// spatial / temporal dimensions; coloured tags mark variable kind (same = same).
+// Grouped by ROLE in the study (inputs → outcome ← explanation), which is the same
+// story the relationship diagram draws. `stage` is kept as a small pipeline tag.
+const DATASET_CATALOG = [
+  { role: "Inputs", stage: "input", sub: "the raw signals", items: [
+    { file: "Daily_Weather.csv", open: "weather", sunit: "Dong", tunit: "Daily",
+      tags: [["wx", "Weather ×4 + flags"]], value: "Hot / mild day flags", src: "KMA" },
+    { file: "sales.csv", open: "sales", sunit: "Dong", tunit: "Daily",
+      tags: [["sl", "85 industries"], ["rt", "19 retail"]], value: "Daily retail sales signal", src: "Seoul AI Foundation" },
+  ] },
+  { role: "Outcome", stage: "index", sub: "what we measure", items: [
+    { file: "RHSI.csv", open: "rhsi", sunit: "Dong", tunit: "Hot vs Mild",
+      tags: [["ix", "RHSI + day counts"]], value: "The heat-sensitivity index", src: "Seoul AI Foundation · KMA" },
+  ] },
+  { role: "Explanation", stage: "feature", sub: "why RHSI varies", items: [
+    { file: "Urban_Features.csv", open: "context", sunit: "Dong", tunit: null,
+      tags: [["ft", "21 features"]], value: "Neighborhood context variables", src: "EGIS · MOLIT · Seoul · Metro" },
+    { file: "shap_result.csv", open: "shap", sunit: "Dong", tunit: null,
+      tags: [["ft", "25 inputs"]], value: "Each model input's push on RHSI", src: "Model output" },
+  ] },
+];
+
+// Relationship-diagram flow (tiers + join-key edges). Each node pulls its detail
+// (temporal chip / variable tags / value) from DATASET_CATALOG by its `open` id.
+const catByOpen = {};
+DATASET_CATALOG.forEach((g) => g.items.forEach((d) => { catByOpen[d.open] = d; }));
+const FLOW = [
+  { tier: [{ open: "weather", role: "The heat", name: "Weather" }, { open: "sales", role: "The behavior", name: "Sales" }] },
+  { edge: { label: "hot vs mild", key: "dong_code + date" } },
+  { tier: [{ open: "rhsi", role: "The outcome", name: "RHSI", outcome: true }] },
+  { edge: { label: "explained by" }},
+  { tier: [{ open: "context", role: "The context", name: "Urban Features" }, { open: "shap", role: "The explanation", name: "SHAP" }] },
+];
+function linNodeHtml(n) {
+  const d = catByOpen[n.open] || {};
+  const tags = (d.tags || []).map(([c, t]) => `<span class="ds-tag t-${c}">${t}</span>`).join("");
+  const temp = d.tunit ? `<span class="ds-unit tm" title="Temporal unit">${ICONS.calendar} ${d.tunit}</span>` : "";
+  const meta = (temp || tags) ? `<div class="lin-meta">${temp}${tags}</div>` : "";
+  return `<button class="lin-node${n.outcome ? " outcome" : ""}" data-open="${n.open}">
+    <div class="lin-role">${n.role}</div>
+    <div class="lin-name">${n.name}</div>
+    <div class="lin-file">${d.file || ""}</div>
+    ${meta}
+    ${d.value ? `<div class="lin-val">${d.value}</div>` : ""}
+  </button>`;
+}
+
 // ---- Dataset detail metadata (real structure) ----
 // mapKey/mapMode drive the CTA "Show Dataset on Map".
 const DATASETS_META = {
   weather: { title: "Daily Weather", badge: "Input Signal", icon: ICONS.sun, map: { mode: "time" },
-    description: "Daily weather conditions used to identify heat exposure and compare hot days with mild reference days.",
+    description: "Daily weather conditions used to identify heat exposure and compare hot days with mild reference days. A day is flagged hot when apparent temperature ≥ 33°C, and mild when 18–26°C with no rain and not a public holiday.",
+    mapTells: "Press play — the temperature heat field pulses across 2024; mid-summer glows hot.",
     metrics: [["Spatial Unit", "Dong (422)", "joined by dong_code"], ["Temporal Unit", "Day · 366", "2024 daily"], ["Coverage", "Seoul dongs", "citywide"], ["Type", "Input", "raw weather"]],
     metadata: [["File", "Daily_Weather.csv"], ["Source", "KMA"], ["Source Type", "Raw + Processed"], ["Role", "heat-exposure input"]],
     importantVars: [["date", "time key", "key"], ["temp_max", "raw weather", ""], ["apptemp_max", "derived heat", ""]],
     chips: ["precip_sum", "humid_max", "is_hot", "is_mild", "is_holiday"],
     views: ["Heat Calendar", "Time Series", "Weather Map", "Compare"] },
   sales: { title: "Sales Signal", badge: "Input Signal", icon: ICONS.sales, map: { mode: "time" },
-    description: "Daily card-sales amounts across ~85 industry categories per dong — the behavioural signal behind retail heat sensitivity.",
+    description: "Daily card-sales amounts across ~85 industry categories per dong — the behavioural signal behind retail heat sensitivity. retail_total_amount sums the 19 retail sectors used to compute RHSI.",
+    mapTells: "Six sales-theme rings per dong animate day by day — watch them shrink on scorching days.",
     metrics: [["Spatial Unit", "Dong (422)", "joined by dong_code"], ["Temporal Unit", "Day · 366", "2024 daily"], ["Business Unit", "85 industries", "6 theme groups"], ["Coverage", "Seoul retail", "card transactions"]],
     metadata: [["File", "sales.csv"], ["Source", "Seoul AI Foundation"], ["Source Type", "Raw"], ["Role", "sales input signal"]],
     importantVars: [["retail_total_amount", "total sales", ""], ["korean_cuisine_amount", "F&B example", ""], ["convenience_store_amount", "retail example", ""]],
@@ -127,9 +182,10 @@ const DATASETS_META = {
     importantVars: [["retail_share", "main sales share", ""], ["dinebev_share_all", "sector share", ""], ["everyday_retail_share_all", "sector share", ""]],
     chips: ["general_share_all", "large_format_share_all", "dinebev_share_retail", "large_format_share_retail"],
     views: ["Composition", "Ranking", "Map", "Correlation"] },
-  context: { title: "Urban Context Features", badge: "Feature Layer", icon: ICONS.building, map: { mode: "metric", key: "land_price" },
+  context: { title: "Urban Context Features", badge: "Feature Layer", icon: ICONS.building, map: { mode: "metric", key: "public_facility_area_share" },
     description: "Urban control variables — demography, accessibility, land-use, built environment — that explain heat-sales sensitivity.",
-    metrics: [["Spatial Unit", "Dong (422)", "joined by dong_code"], ["Temporal Unit", "Mostly static", "context features"], ["Feature Type", "Urban context", "26 variables"], ["Coverage", "Seoul dongs", "citywide"]],
+    mapTells: "A sequential choropleth of one urban feature (public facility land by default) — compare its pattern to RHSI.",
+    metrics: [["Spatial Unit", "Dong (422)", "joined by dong_code"], ["Temporal Unit", "Mostly static", "context features"], ["Feature Type", "Urban context", "21 variables"], ["Coverage", "Seoul dongs", "citywide"]],
     metadata: [["File", "Urban_Features.csv"], ["Source", "Mixed (EGIS, MOLIT, Seoul, Metro)"], ["Source Type", "Raw + Processed"], ["Role", "context / control layer"]],
     importantVars: [["land_price", "economic context", ""], ["elderly_share", "vulnerability", ""], ["subway_access_coverage", "accessibility", ""]],
     chips: ["low_income_share", "bus_stop_density", "green_space_share", "commercial_area_share", "residential_area_share", "aged_housing_share", "parking_capacity", "activity_facility_density"],
@@ -143,6 +199,7 @@ const DATASETS_META = {
     chips: ["subway_access_coverage", "bus_stop_density", "activity_facility_density"], views: ["Mobility Map", "Hot/Mild Compare", "Correlation", "Ranking"] },
   rhsi: { title: "RHSI Retail", badge: "Computed Index", icon: ICONS.chart, map: { mode: "metric", key: "RHSI_retail" },
     description: "Retail heat-sensitivity index — log-ratio of mean retail sales on hot days to mild days, per dong. The study's primary output.",
+    mapTells: "Each dong colored blue→rose by heat-sensitivity — blue neighborhoods lose the most retail on hot days.",
     metrics: [["Spatial Unit", "Dong (422)", "joined by dong_code"], ["Temporal Unit", "Hot vs Mild", "computed comparison"], ["Index Type", "Resilience", "retail heat sensitivity"], ["Coverage", "Seoul retail", "RHSI by dong"]],
     metadata: [["File", "RHSI.csv"], ["Source", "Seoul AI Foundation; KMA"], ["Source Type", "Processed"], ["Role", "final analytical output"]],
     importantVars: [["RHSI_retail", "main index", ""], ["n_hot_days", "hot-day count", ""], ["n_mild_days", "reference count", ""]],
@@ -153,6 +210,15 @@ const DATASETS_META = {
     metadata: [["File", "RHSI.csv"], ["Source", "KMA"], ["Source Type", "Processed"], ["Role", "index support metric"]],
     importantVars: [["n_hot_days", "hot-day count", ""], ["n_mild_days", "mild-day count", ""], ["dong_code", "spatial key", "key"]],
     chips: ["gu_code", "dong_name"], views: ["Count Map", "Reliability Check", "Distribution", "Compare"] },
+  shap: { title: "SHAP Contributions", badge: "Model Explanation", icon: ICONS.chart, map: { mode: "metric", key: "RHSI_retail" },
+    description: "Per-dong SHAP values — how much each model input pushed the predicted RHSI up or down. This explains model behavior, not causality.",
+    mapTells: "The map colors by RHSI — the value SHAP explains — while the variables below rank each feature's push.",
+    metrics: [["Spatial Unit", "Dong (422)", "joined by dong_code"], ["Temporal Unit", "Static", "per-dong summary"], ["Type", "Explanation", "model interpretation"], ["Coverage", "25 inputs", "one contribution each"]],
+    metadata: [["File", "shap_result.csv"], ["Source", "Model output"], ["Source Type", "Computed"], ["Role", "model explanation of RHSI"]],
+    importantVars: [["shap_delta_daypop", "top contributor", ""], ["shap_dnpr", "contributor", ""], ["shap_land_price", "contributor", ""]],
+    chips: ["shap_elderly_share", "shap_retail_share", "shap_green_space_share", "shap_commercial_area_share"],
+    categoryGroupKind: "context", // SHAP explains the same urban features → same theme groups
+    views: ["SHAP Map", "Feature Importance", "Per-dong Drivers", "Compare"] },
   geometry: { title: "Dong Geometry", badge: "Map Layer", icon: ICONS.map, map: { mode: "geometry" },
     description: "Administrative dong boundary geometry used to map and spatially join every UHUS variable.",
     metrics: [["Spatial Unit", "Dong (422)", "polygon boundary"], ["Temporal Unit", "Static", "administrative"], ["Format", "GeoJSON", "EPSG:4326"], ["Coverage", "Seoul", "all dongs"]],
@@ -174,6 +240,49 @@ const DATASETS_META = {
     categoryGroupKind: "sales", views: ["Sector Profile", "Time-flow", "Ranking", "Compare"] },
 };
 
+// Best-recommended 3D-map representation per dataset — the full map state that
+// `applyRecommended(id)` applies (and mirrors onto every left-panel control).
+// `time` / `color` default from each dataset's own `map` hint above; the fields
+// here only ADD the layers, sector encoding, grain, camera mode and slider tuning
+// that make each dataset read best. Everything omitted falls back to a default
+// (grain "dong", mode "3d", color = the dataset's metric key, time = its map mode).
+// A representation = a recipe for the map state: which layers, whether it's a sector
+// glyph, time-flow, or 2D, plus slider tuning. Colour/height come from the dataset's
+// own metric (DATASETS_META[id].map.key). `applyRepresentation` applies one and mirrors
+// it onto every left-panel control.
+const REP_TYPES = {
+  choropleth: { label: "Flat map",     layers: ["roads", "choropleth"], sliders: { elevation: 0.12, radius: 1.0, opacity: 1.0, glow: 1.0 } },
+  bars:       { label: "3D bars",      layers: ["boundary", "roads", "columns"], height: true, sliders: { elevation: 0.12, radius: 1.0, opacity: 0.95, glow: 1.0 } },
+  points:     { label: "Glow points",  layers: ["boundary", "roads", "pointCore", "pointHalo"], sliders: { elevation: 0.12, radius: 1.0, opacity: 0.9, glow: 1.4 } },
+  rings:      { label: "Rings",        layers: ["boundary"], sector: "rings", sliders: { elevation: 1.0, radius: 1.2, opacity: 0.85, glow: 1.3 } },
+  radial:     { label: "Radial",       layers: ["boundary"], sector: "radial", sliders: { elevation: 1.0, radius: 1.2, opacity: 0.85, glow: 1.3 } },
+  columns:    { label: "Columns",      layers: ["boundary"], sector: "columns", sliders: { elevation: 1.4, radius: 1.1, opacity: 0.85, glow: 1.2 } },
+  dominant:   { label: "Dominant",     layers: ["boundary"], sector: "dominant", sliders: { elevation: 0.12, radius: 1.0, opacity: 0.95, glow: 1.0 } },
+  signedcols: { label: "Signed 3D",    layers: ["boundary"], sector: "signedcols", sliders: { elevation: 1.4, radius: 1.1, opacity: 0.9, glow: 1.2 } },
+  divided:    { label: "Divided",      layers: ["boundary", "roads"], sector: "divided", sliders: { elevation: 0.12, radius: 1.0, opacity: 0.95, glow: 1.0 } },
+  buildingmix:{ label: "Buildings",    layers: ["boundary"], sector: "buildingmix", sliders: { elevation: 1.0, radius: 1.0, opacity: 0.9, glow: 1.0 } },
+  heatfield:  { label: "Heat field",   layers: ["boundary"], time: true, compare: false, sliders: { elevation: 1.0, radius: 1.8, opacity: 0.9, glow: 1.4 } },
+  compare:    { label: "Heat × sales", layers: ["boundary"], time: true, compare: true, sliders: { elevation: 1.0, radius: 1.3, opacity: 0.85, glow: 1.4 } },
+  dashboard:  { label: "Dashboard",    layers: ["boundary", "roads", "choropleth", "columns"], height: true, sliders: { elevation: 0.2, radius: 1.0, opacity: 1.0, glow: 1.0 } },
+  boundary:   { label: "Base map",     layers: ["boundary", "roads", "labels"], mode: "2d", sliders: { elevation: 1.0, radius: 1.0, opacity: 0.85, glow: 0.8 } },
+};
+// Each dataset's Representation menu — first entry is the default (recommended) view.
+const DATASET_REPS = {
+  weather:      ["heatfield", "compare"],
+  heatfeature:  ["heatfield", "compare"],
+  sales:        ["rings", 'choropleth', "radial", "columns", "dominant", "compare"],
+  sectorprofile:["columns", "rings", "radial", "dominant"],
+  rhsi:         ["buildingmix", "choropleth", "bars", "points"],
+  shap:         ["buildingmix", "signedcols", "columns", "divided",  "dominant", "rings", "radial", "choropleth", "bars", "points"],
+  context:      ["choropleth", "columns", "divided", "buildingmix", "dominant", "rings", "radial", "bars", "points"],
+  mobility:     ["choropleth", "bars", "points"],
+  salesfeature: ["choropleth", "bars", "points"],
+  heatdays:     ["choropleth", "bars"],
+  atlas:        ["dashboard", "compare", "rings"],
+  dongbase:     ["boundary"],
+  geometry:     ["boundary"],
+};
+
 // ---- Theme variable groups (sales + urban context) — for the tag detail panels ----
 const SALES_GROUPS = {
   food_beverage: { title: "Food & Beverage", count: 10, examples: ["korean_cuisine", "cafe", "bakery", "fast_food"], columns: ["korean_cuisine", "japanese_cuisine", "western_cuisine", "chinese_cuisine", "bakery", "cafe", "fast_food", "other_food", "other_food_service", "liquor_store"], use: "hot-day dining response", groupIndex: 0 },
@@ -184,10 +293,10 @@ const SALES_GROUPS = {
   housing_professional_local: { title: "Housing / Professional / Local", count: 10, examples: ["real_estate_agency", "furniture", "legal_office", "flower_shop"], columns: ["real_estate_agency", "interior_building_materials_kitchenware", "legal_office_service", "accounting_patent_service", "research_translation_service", "wedding_hall_service", "funeral_home_cemetery", "pet_shop", "flower_shop", "used_goods_store"], use: "neighbourhood service & durable goods", groupIndex: 5 },
 };
 const CONTEXT_GROUPS = {
-  demographic_vulnerability: { title: "Demographic Vulnerability", count: 3, examples: ["elderly_share", "low_income_share", "aged_housing_share"], columns: ["elderly_share", "low_income_share", "aged_housing_share"], use: "who is most exposed to heat", mapKey: "elderly_share" },
-  accessibility_mobility: { title: "Accessibility / Mobility", count: 5, examples: ["subway_access_coverage", "bus_stop_density", "dnpr"], columns: ["subway_access_coverage", "bus_stop_density", "activity_facility_density", "dnpr", "delta_daypop"], use: "movement & access to cooling", mapKey: "subway_access_coverage" },
-  land_use_built: { title: "Land Use / Built Environment", count: 7, examples: ["commercial_area_share", "green_space_share", "residential_area_share"], columns: ["residential_area_share", "commercial_area_share", "leisure_area_share", "transportation_area_share", "public_facility_area_share", "green_space_share", "parking_capacity"], use: "physical form & shade/cooling", mapKey: "green_space_share" },
-  economic_housing: { title: "Economic / Housing Context", count: 6, examples: ["land_price", "retail_share", "dinebev_share_all"], columns: ["land_price", "retail_share", "dinebev_share_all", "everyday_retail_share_all", "general_share_all", "large_format_share_all"], use: "economic intensity & retail mix", mapKey: "land_price" },
+  population_dynamics: { title: "Population Dynamics", count: 2, examples: ["dnpr", "delta_daypop"], columns: ["dnpr", "delta_daypop"], use: "daytime inflow & heat-day population loss", mapKey: "delta_daypop" },
+  demographics: { title: "Demographics", count: 2, examples: ["elderly_share", "low_income_share"], columns: ["elderly_share", "low_income_share"], use: "who is most exposed to heat", mapKey: "elderly_share" },
+  retail_structure: { title: "Retail Structure", count: 5, examples: ["retail_share", "dinebev_share_all", "large_format_share_all"], columns: ["retail_share", "dinebev_share_all", "everyday_retail_share_all", "general_share_all", "large_format_share_all"], use: "retail composition & mix", mapKey: "retail_share" },
+  urban_env_access: { title: "Urban Environment & Accessibility", count: 12, examples: ["commercial_area_share", "green_space_share", "subway_access_coverage"], columns: ["residential_area_share", "commercial_area_share", "leisure_area_share", "transportation_area_share", "public_facility_area_share", "green_space_share", "activity_facility_density", "aged_housing_share", "land_price", "subway_access_coverage", "bus_stop_density", "parking_capacity"], use: "physical form, land value & access to cooling", mapKey: "green_space_share" },
 };
 
 const COMMON_VARS = {
@@ -202,6 +311,7 @@ const Panels = {
   map: null,
   currentDatasetForBack: null,
   currentStage: "input",
+  selection: null,  // null (nothing) | "project" | "dataset" — drives panel visibility
 
   init(map) {
     this.map = map;
@@ -210,18 +320,74 @@ const Panels = {
     this.label = document.getElementById("panelLabel");
     this.modeLabel = document.getElementById("modeLabel");
     this.modeStrong = document.getElementById("modeStrong");
-    // tab switching
-    document.querySelectorAll(".uhus-panel-tab").forEach((t) => {
-      t.addEventListener("click", () => {
-        document.querySelectorAll(".uhus-panel-tab").forEach((x) => x.classList.remove("active"));
-        t.classList.add("active");
-        const rec = t.dataset.panelTab === "recommend";
-        this.host.classList.toggle("recommend-mode", rec);
-        this.host.classList.toggle("detail-mode", !rec);
-      });
+    // left-rail tab switching (Detail / Insights / Sets)
+    document.querySelectorAll(".rail-tab").forEach((t) => {
+      t.addEventListener("click", () => this.setTab(t.dataset.panelTab));
     });
-    this.bindRecommend();
+    this.renderSpine();
+    // Open on the UHUS project detail (Detail + Insights side by side).
     this.renderProject();
+  },
+
+  // Switch the right-panel view via the left rail. Insights renders its charts
+  // only while visible, so (re)render when it becomes the active tab.
+  setTab(name) {
+    if (!name) return;
+    document.querySelectorAll(".rail-tab").forEach((x) => x.classList.toggle("active", x.dataset.panelTab === name));
+    this.host.classList.remove("mode-detail", "mode-insights", "mode-library");
+    this.host.classList.add("mode-" + name);
+    // Detail now shows the Insights panel alongside it, so render insights there too.
+    if ((name === "insights" || name === "detail") && typeof Insights !== "undefined") Insights.render();
+    if (name === "library") this.renderLibraryView();
+  },
+
+  // Left-rail spine: collapsed stage ticks + a hover dataset list (quick nav).
+  renderSpine() {
+    const spine = document.getElementById("railSpine");
+    if (!spine || typeof DATASET_CATALOG === "undefined") return;
+    spine.innerHTML = `
+      <button class="spine-home" data-project title="UHUS project overview + insights">✧<span>UHUS</span></button>
+      <div class="spine-collapsed">
+        ${DATASET_CATALOG.map((g) => `<div class="spine-cg"><span class="spine-cg-title">${g.role}</span><span class="spine-cg-count">${g.items.length}</span></div>`).join("")}
+      </div>
+      <div class="spine-full">
+        ${DATASET_CATALOG.map((g) => `
+          <div class="spine-grp">${g.role}</div>
+          ${g.items.map((d) => `<button class="spine-ds${d.open ? "" : " disabled"}"${d.open ? ` data-open="${d.open}"` : ""} title="${d.file}">${d.file}</button>`).join("")}`).join("")}
+      </div>`;
+    // Click UHUS → back to a clean project overview with no dataset node selected.
+    const home = spine.querySelector("[data-project]");
+    if (home) home.onclick = () => this.resetProjectView();
+    spine.querySelectorAll(".spine-ds[data-open]").forEach((b) => b.onclick = () => this.renderDatasetDetail(b.dataset.open));
+  },
+
+  resetProjectView() {
+    this.selectedNode = null;
+    this.currentDatasetForBack = null;
+    this.selectedDatasetId = null;
+    this.selection = "project";
+    this.renderProject();
+  },
+
+  // Library tab: browse every dataset grouped by pipeline stage.
+  renderLibraryView() {
+    const body = document.getElementById("libraryBody");
+    if (!body || typeof DATASET_CATALOG === "undefined") return;
+    const total = DATASET_CATALOG.reduce((n, g) => n + g.items.length, 0);
+    body.innerHTML = `
+      <div class="title-block">
+        <div class="icon">${ICONS.map}</div>
+        <div>
+          <div class="name-row"><div class="name">Dataset Library</div><div class="badge">${total} files</div></div>
+          <p class="desc">Every UHUS source file, grouped by its role in the study. Click a dataset to open its detail.</p>
+        </div>
+      </div>
+      <div class="lib-tree">
+        ${DATASET_CATALOG.map((g) => `
+          <div class="lib-group">${g.role} · ${g.sub}</div>
+          ${g.items.map((d) => `<button class="lib-row${d.open ? "" : " disabled"}"${d.open ? ` data-open="${d.open}"` : ""}><span class="lib-name">${d.file}</span><span class="lib-badge">${g.stage}</span></button>`).join("")}`).join("")}
+      </div>`;
+    body.querySelectorAll(".lib-row[data-open]").forEach((b) => b.onclick = () => this.renderDatasetDetail(b.dataset.open));
   },
 
   // ---------- map wiring ----------
@@ -254,6 +420,154 @@ const Panels = {
     this.map.setGrain(g);
     document.querySelectorAll("#grain-seg button").forEach((b) => b.classList.toggle("active", b.dataset.grain === g));
   },
+  // Mirror the camera mode onto the Map Mode segmented control.
+  _setModeUI(mode) {
+    document.querySelectorAll("#mc-mode button").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  },
+  // The datasets' representation menu + default (first entry).
+  datasetReps(id) { return (typeof DATASET_REPS !== "undefined" && DATASET_REPS[id]) || ["choropleth"]; },
+  defaultRep(id) { return this.datasetReps(id)[0]; },
+
+  // Apply one representation to the map AND mirror the full state onto every left-panel
+  // control (Map Mode, layer checks, sliders, grain, colour dropdown) plus the
+  // Representation picker. Colour/height come from the dataset's own metric.
+  applyRepresentation(id, repId) {
+    const meta = DATASETS_META[id];
+    if (!meta || !this.map) return;
+    const reps = this.datasetReps(id);
+    if (!reps.includes(repId)) repId = reps[0];
+    // Set early so enterTimeMode()/timeChannel() (called from the time block below)
+    // reads the representation we're switching TO, not the previous one.
+    this.selectedRep = repId;
+    const rt = (typeof REP_TYPES !== "undefined" && REP_TYPES[repId]) || {};
+    const m = this.map;
+    const color = meta.map.mode === "metric" ? meta.map.key : null;
+    const mode = rt.mode || "3d";
+    const sector = rt.sector || null;
+
+    // Time flow is normally explicit, except Sales choropleth should play as its
+    // own daily sales sequence without making every choropleth time-driven.
+    const salesTimeChoropleth = id === "sales" && repId === "choropleth";
+    if (rt.time || salesTimeChoropleth) {
+      m.timeCompare = salesTimeChoropleth ? false : !!rt.compare;
+      if (typeof m.setTimeVar === "function") m.setTimeVar(salesTimeChoropleth ? "sales" : "temp");
+      if (typeof enterTimeMode === "function") enterTimeMode();
+    }
+    else { if (typeof exitTimeMode === "function") exitTimeMode(); }
+
+    // layer allow-list
+    if (rt.layers) { const on = new Set(rt.layers); Object.keys(m.layers).forEach((k) => { m.layers[k] = on.has(k); }); }
+
+    // unified colour / height metric
+    if (color) {
+      m.unifyLayerColors(color);
+      m.unifyLayerHeights(color);
+    }
+
+    // grain + sector encoding
+    this._setGrainUI("dong");
+    m.setSectorView(sector);
+
+    // slider tuning (syncs the slider inputs + read-outs)
+    if (rt.sliders) this._applyView(rt.sliders);
+
+    // camera mode: 2D reads flat, so kill the bloom/glow (remember it for a 3D restore)
+    this._setModeUI(mode);
+    if (m.map && m.map.easeTo) m.map.easeTo({ pitch: mode === "2d" ? 0 : 45, duration: 600 });
+    m._glow3d = m.glow;
+    if (mode === "2d" && typeof setGlowUI === "function") setGlowUI(0);
+
+    m.render();
+
+    // reflect onto the remaining controls
+    const cs = document.getElementById("dd-color"); if (cs) cs.value = color || "";
+    const hs = document.getElementById("dd-height"); if (hs && color) hs.value = color;
+    if (typeof syncLayerChecks === "function") syncLayerChecks();
+    if (typeof syncToolbar === "function") syncToolbar();
+    if (typeof syncLayerVarSelects === "function") syncLayerVarSelects();
+    this._syncRepControl(id, repId);
+    if (typeof updateLegend === "function") updateLegend();
+    // Switching to/from Heat × sales flips the time channel — refresh the strip
+    // (visibility + which series it draws).
+    if (typeof syncTimeline === "function") syncTimeline();
+  },
+
+  // Build/refresh the map-panel Representation segmented control for the dataset.
+  _syncRepControl(id, activeRep) {
+    const el = document.getElementById("mc-representation");
+    if (!el) return;
+    const reps = this.datasetReps(id);
+    el.innerHTML = reps.map((r) => `<button data-rep="${r}" class="${r === activeRep ? "active" : ""}">${(REP_TYPES[r] || {}).label || r}</button>`).join("");
+    el.querySelectorAll("button[data-rep]").forEach((b) => b.onclick = () => this.applyRepresentation(id, b.dataset.rep));
+    this._syncShapFeatureControl(id, activeRep);
+  },
+
+  // Signed SHAP is an additive decomposition, so the map can truthfully show a
+  // subset: checking a feature includes that feature's contribution in its theme
+  // stack; removing it subtracts that contribution from the displayed explanation.
+  _syncShapFeatureControl(id, activeRep) {
+    const el = document.getElementById("shap-feature-filter");
+    if (!el || !this.map) return;
+    const visible = id === "shap" && activeRep === "signedcols";
+    el.hidden = !visible;
+    if (!visible) { el.innerHTML = ""; return; }
+
+    const groups = Object.entries(CONTEXT_GROUPS);
+    const allKeys = [...new Set(groups.flatMap(([, g]) => g.columns || []))];
+    const selected = new Set(this.map._shapFeatureKeys());
+    const featureLabel = (key) => {
+      const spec = Atlas.metricSpec(key);
+      return spec ? spec.label : key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    };
+    el.innerHTML = `
+      <div class="shap-filter-head">
+        <span>SHAP FEATURES</span>
+        <span class="shap-filter-actions"><button data-shap-action="all">All</button><button data-shap-action="none">None</button></span>
+      </div>
+      <p class="shap-filter-note">Include or remove additive contributions. The model is not rerun.</p>
+      ${groups.map(([groupKey, g]) => {
+        const cols = g.columns || [];
+        return `<details class="shap-filter-group">
+          <summary>
+            <label><input type="checkbox" data-shap-group="${groupKey}"> <span>${g.title}</span></label>
+            <small>${cols.filter((c) => selected.has(c)).length}/${cols.length}</small>
+          </summary>
+          <div class="shap-filter-vars">${cols.map((c) => `<label title="${c}"><input type="checkbox" data-shap-feature="${c}"${selected.has(c) ? " checked" : ""}> <span>${featureLabel(c)}</span></label>`).join("")}</div>
+        </details>`;
+      }).join("")}`;
+
+    groups.forEach(([groupKey, g]) => {
+      const box = el.querySelector(`[data-shap-group="${groupKey}"]`);
+      const count = (g.columns || []).filter((c) => selected.has(c)).length;
+      box.checked = count === (g.columns || []).length;
+      box.indeterminate = count > 0 && count < (g.columns || []).length;
+    });
+    const apply = (next) => {
+      this.map.setShapFeatures([...next]);
+      this._syncShapFeatureControl(id, activeRep);
+      if (typeof updateLegend === "function") updateLegend();
+    };
+    el.querySelectorAll("[data-shap-feature]").forEach((box) => {
+      box.onchange = () => {
+        const next = new Set(this.map._shapFeatureKeys());
+        if (box.checked) next.add(box.dataset.shapFeature); else next.delete(box.dataset.shapFeature);
+        apply(next);
+      };
+    });
+    el.querySelectorAll("[data-shap-group]").forEach((box) => {
+      box.onchange = () => {
+        const next = new Set(this.map._shapFeatureKeys());
+        const cols = (CONTEXT_GROUPS[box.dataset.shapGroup] || {}).columns || [];
+        cols.forEach((c) => box.checked ? next.add(c) : next.delete(c));
+        apply(next);
+      };
+    });
+    el.querySelector('[data-shap-action="all"]').onclick = () => apply(new Set(allKeys));
+    el.querySelector('[data-shap-action="none"]').onclick = () => apply(new Set());
+  },
+
+  // Opening a dataset applies its default (first) representation.
+  applyRecommended(id) { this.applyRepresentation(id, this.defaultRep(id)); },
   applyDatasetMap(m) {
     if (!m) return;
     if (m.mode === "time") { if (typeof enterTimeMode === "function") enterTimeMode(); }
@@ -267,12 +581,15 @@ const Panels = {
 
   // ---------- Project Detail ----------
   renderProject() {
+    this.setTab("detail");
     this.label.textContent = "Project Detail";
     this.modeLabel.textContent = "Project Group Panel";
-    this.modeStrong.textContent = "Clickable Lineage";
+    this.modeStrong.textContent = "Dataset Catalog";
     // Project scope = no single dataset → variable dropdowns show everything.
     this.selectedDatasetId = null;
+    this.selection = "project";
     if (typeof refreshVariableDropdowns === "function") refreshVariableDropdowns();
+    if (typeof Insights !== "undefined") Insights.scheduleRender();
     this.body.innerHTML = `
       <section class="title-block">
         <div class="icon">${ICONS.chart}</div>
@@ -283,59 +600,76 @@ const Panels = {
       </section>
       <div class="divider"></div>
       <section>
-        <div class="section-title"><span>Data Lineage</span><span>click a stage</span></div>
-        <div class="lineage-box">
-          <div class="lineage-row">
-            ${["input", "feature", "index", "view"].map((s, i) => `
-              ${i ? '<div class="arrow">→</div>' : ""}
-              <button class="lineage-step" data-stage="${s}"><span class="step-title">${s[0].toUpperCase() + s.slice(1)}</span><span class="step-sub">${{ input: "weather / sales / base", feature: "derived variables", index: "RHSI output", view: "dashboard layers" }[s]}</span></button>`).join("")}
-          </div>
-          <div class="stage-detail">
-            <div class="stage-head"><div><div class="stage-name" id="stageName"></div><div class="stage-note" id="stageNote"></div></div><div class="stage-count" id="stageCount"></div></div>
-            <div class="dataset-grid" id="datasetGrid"></div>
-          </div>
+        <div class="section-title"><span>How the datasets connect</span><span>click a node</span></div>
+        <div class="lin-flow">
+          ${FLOW.map((row) => row.edge
+            ? `<div class="lin-edge"><svg class="lin-arrow" viewBox="0 0 24 24"><path d="M12 5v13M6 13l6 6 6-6"/></svg><span>${row.edge.label}</span></div>`
+            : `<div class="lin-tier">${row.tier.map((n) => linNodeHtml(n)).join("")}</div>`).join("")}
         </div>
-      </section>
-      <div class="divider"></div>
-      <section>
-        <div class="section-title"><span>Common Variables</span><span>shared keys first</span></div>
-        <div class="variable-focus">
-          ${Object.entries(COMMON_VARS).map(([k, v]) => `<div class="var-row clickable" data-key="${k}"><span class="var-name">${k}</span><span class="var-role key">${v.role}</span></div>`).join("")}
+        <div class="ds-note">${ICONS.pin} All datasets are dong-level · 422 neighborhoods</div>
+        <div class="ds-legend">
+          <span class="ds-unit tm">${ICONS.calendar} Temporal</span>
+          <span><i class="ds-sq t-wx"></i>Weather</span>
+          <span><i class="ds-sq t-sl"></i>Sales</span>
+          <span><i class="ds-sq t-ft"></i>Features</span>
+          <span><i class="ds-sq t-ix"></i>Index</span>
         </div>
-        <div class="click-hint">Click a common variable to open its tag detail panel.</div>
-      </section>
-      <div class="divider"></div>
-      <section>
-        <div class="section-title"><span>Theme Variable Groups</span><span>sales.csv · 85 columns</span></div>
-        <div class="topic-list">
-          ${Object.entries(SALES_GROUPS).map(([k, g]) => `
-            <div class="topic clickable" data-group="${k}">
-              <div class="topic-head"><div class="topic-name">${g.title}</div><div class="topic-count">${g.count}</div></div>
-              <div class="topic-body">${g.examples.map((e) => `<span class="chip">${e}</span>`).join("")}<span class="chip more">+${g.count - g.examples.length}</span></div>
-            </div>`).join("")}
-        </div>
-        <div class="click-hint">Click a theme variable group to open its group panel.</div>
-      </section>
-      <div class="divider"></div>
-      <section class="detail-insights">
-        ${typeof howToReadRhsiHtml === "function" ? howToReadRhsiHtml() : ""}
-      </section>
-      <button class="cta" id="projectCta">Show Current Selection on Map ＋</button>
-      <div class="small-note">Panel selections drive the map on the left.</div>`;
+        <div class="click-hint">Click a node to preview it below and on the map · click again to collapse · no calendar chip = static (per-dong summary).</div>
+        <div id="lin-detail" class="lin-detail"></div>
+      </section>`;
 
-    this.renderStage(this.currentStage);
-    this.body.querySelectorAll(".var-row[data-key]").forEach((el) => el.onclick = () => this.renderTagDetail("key", el.dataset.key, "project"));
-    this.body.querySelectorAll(".topic[data-group]").forEach((el) => el.onclick = () => this.renderTagDetail("group", el.dataset.group, "project"));
-    // CTA: reset to the project's default RHSI choropleth at city scope.
-    const cta = document.getElementById("projectCta");
-    if (cta) cta.onclick = () => {
-      if (this.map.isTimeMode()) this.map.setTimeMode(false);
-      this.map.unifyLayerColors("RHSI_retail");
-      const s = document.getElementById("dd-color"); if (s) s.value = "RHSI_retail";
-      if (typeof syncLayerVarSelects === "function") syncLayerVarSelects();
-      if (typeof updateLegend === "function") updateLegend();
-    };
+    this.body.querySelectorAll(".lin-node[data-open]").forEach((el) => el.onclick = () => this.selectNode(el.dataset.open));
+    // Re-open the previously expanded node (e.g. returning from a Full detail page).
+    if (this.selectedNode) { const keep = this.selectedNode; this.selectedNode = null; this.selectNode(keep); }
     this.scrollTop();
+  },
+
+  // Expand a diagram node's compact detail inline (keeping the diagram visible) and drive the map.
+  selectNode(id) {
+    const detail = this.body.querySelector("#lin-detail");
+    const nodes = this.body.querySelectorAll(".lin-node[data-open]");
+    // Toggle off: clicking the open node collapses it and returns to project scope.
+    if (id === this.selectedNode) {
+      this.selectedNode = null;
+      if (detail) detail.innerHTML = "";
+      nodes.forEach((n) => n.classList.remove("active"));
+      this.selectedDatasetId = null;
+      this.selection = "project";
+      if (typeof refreshVariableDropdowns === "function") refreshVariableDropdowns();
+      if (typeof Insights !== "undefined") Insights.scheduleRender();
+      return;
+    }
+    const d = DATASETS_META[id];
+    if (!d || !detail) return;
+    this.selectedNode = id;
+    // Scope the panel + dropdowns to this dataset (mirrors renderDatasetDetail's side-effects).
+    this.selectedDatasetId = id;
+    this.selection = "dataset";
+    if (typeof refreshVariableDropdowns === "function") refreshVariableDropdowns();
+    if (typeof Insights !== "undefined") Insights.scheduleRender();
+    nodes.forEach((n) => n.classList.toggle("active", n.dataset.open === id));
+    detail.innerHTML = this.datasetInlineCard(id);
+    detail.querySelector("[data-full]").onclick = () => this.renderDatasetDetail(id);
+    detail.querySelectorAll("[data-inline-group]").forEach((c) => c.onclick = () => this.renderTagDetail("group", c.dataset.inlineGroup, "project"));
+    this.applyRecommended(id);
+  },
+
+  // Compact inline card: header + description + the "On the 3D map" reading + a few
+  // metrics + (for grouped datasets) the theme-group boxes.
+  datasetInlineCard(id) {
+    const d = DATASETS_META[id];
+    if (!d) return "";
+    const catGroups = d.categoryGroupKind === "sales" ? SALES_GROUPS : d.categoryGroupKind === "context" ? CONTEXT_GROUPS : null;
+    return `
+      <section class="title-block">
+        <div class="icon">${d.icon}</div>
+        <div><div class="name-row"><div class="name">${d.title}</div><div class="badge">${d.badge}</div></div><p class="desc">${d.description}</p></div>
+      </section>
+      ${this.mapPreviewHtml(d)}
+      <div class="key-metrics">${d.metrics.slice(0, 4).map((m, i) => `<div class="metric-block ${i < 2 ? "primary" : ""}"><span class="metric-key">${m[0]}</span><span class="metric-value">${m[1]}</span><span class="metric-sub">${m[2]}</span></div>`).join("")}</div>
+      ${catGroups ? `<div class="section-title lin-groups-title"><span>Theme Groups</span><span>${Object.keys(catGroups).length} groups</span></div>
+        <div class="category-grid">${Object.entries(catGroups).map(([k, g]) => `<div class="category-card" data-inline-group="${k}"><strong>${g.title}</strong><span>${g.examples.slice(0, 3).join(", ")}</span><div class="tag">${g.count} cols</div></div>`).join("")}</div>` : ""}
+      <button class="lin-fulldetail" data-full>Full detail →</button>`;
   },
 
   renderStage(stage) {
@@ -358,24 +692,61 @@ const Panels = {
     this.body.querySelectorAll(".dataset-mini").forEach((c) => c.onclick = () => this.renderDatasetDetail(c.dataset.id));
   },
 
+  // "On the 3D map" preview — what the map shows when this dataset is applied.
+  // Reuses the map's ramps + rampGradient() (js/app.js) and Atlas.metricSpec.
+  mapPreviewHtml(d) {
+    const m = d.map || {};
+    const modeLabel = { time: "Time-flow", metric: "Choropleth", geometry: "Boundary", boundary: "Boundary" }[m.mode] || "Map";
+    const rg = (typeof rampGradient === "function") ? rampGradient : null;
+    let grad = "", ends = "", enc = [];
+    if (m.mode === "time" && typeof TEMP_HEAT_RANGE !== "undefined") {
+      grad = rg ? rg(TEMP_HEAT_RANGE) : ""; ends = `<span>cool</span><span>hot</span>`;
+      enc = ["heat-field: temperature", "rings: 6 sales themes", "time: animated"];
+    } else if (m.mode === "metric" && m.key) {
+      const spec = (typeof Atlas !== "undefined") ? Atlas.metricSpec(m.key) : null;
+      const colorLabel = spec ? spec.label : m.key;
+      const stops = (spec && spec.signed) ? (typeof RAMP_DIVERGING !== "undefined" ? RAMP_DIVERGING : null)
+                                          : (typeof RAMP_SEQUENTIAL !== "undefined" ? RAMP_SEQUENTIAL : null);
+      grad = (stops && rg) ? rg(stops) : "";
+      ends = (spec && spec.signed) ? `<span>sensitive</span><span>0</span><span>resilient</span>` : `<span>low</span><span>high</span>`;
+      enc = [`color: ${colorLabel}`, "height: none", "time: off"];
+    } else { enc = ["shape: dong boundaries", "time: off"]; }
+    return `
+      <section>
+        <div class="section-title"><span>On the 3D map</span><span>${modeLabel}</span></div>
+        ${d.mapTells ? `<p class="map-tells">${d.mapTells}</p>` : ""}
+        ${grad ? `<div class="map-ramp" style="background:${grad}"></div><div class="map-ends">${ends}</div>` : ""}
+        <div class="map-enc">${enc.map((e) => `<span>${e}</span>`).join("")}</div>
+      </section>`;
+  },
+
   // ---------- Dataset Detail ----------
   renderDatasetDetail(id) {
     const d = DATASETS_META[id];
     if (!d) return;
+    this.setTab("detail");
     this.currentDatasetForBack = id;
     // The variable dropdowns scope to the dataset currently open in the detail.
     this.selectedDatasetId = id;
+    this.selection = "dataset";
     if (typeof refreshVariableDropdowns === "function") refreshVariableDropdowns();
+    if (typeof Insights !== "undefined") Insights.scheduleRender();
     this.label.textContent = "Dataset Detail";
     this.modeLabel.textContent = "Dataset Detail";
     this.modeStrong.textContent = d.title;
     const catGroups = d.categoryGroupKind === "sales" ? SALES_GROUPS : d.categoryGroupKind === "context" ? CONTEXT_GROUPS : null;
+    // The whole variable list: every column (grouped datasets flatten all their
+    // theme-group columns; others just use their chip list).
+    const allCols = catGroups ? [...new Set(Object.values(catGroups).flatMap((g) => g.columns))] : d.chips;
     this.body.innerHTML = `
       <button class="back-btn" data-back>← Back to UHUS lineage</button>
       <section class="title-block">
         <div class="icon">${d.icon}</div>
         <div><div class="name-row"><div class="name">${d.title}</div><div class="badge">${d.badge}</div></div><p class="desc">${d.description}</p></div>
       </section>
+      <div class="divider"></div>
+      ${this.mapPreviewHtml(d)}
+      ${id === "rhsi" && typeof howToReadRhsiHtml === "function" ? `<div class="divider"></div><section class="detail-insights">${howToReadRhsiHtml()}</section>` : ""}
       <div class="divider"></div>
       <section>
         <div class="section-title"><span>Primary Structure</span><span>key blocks</span></div>
@@ -388,15 +759,11 @@ const Panels = {
       </section>
       <div class="divider"></div>
       <section>
-        <div class="section-title"><span>Variables</span><span>rows + chips</span></div>
+        <div class="section-title"><span>Variables</span><span>${d.importantVars.length + allCols.length} total</span></div>
         <div class="variable-focus">${d.importantVars.map((v) => `<div class="var-row clickable" data-var="${v[0]}"><span class="var-name">${v[0]}</span><span class="var-role ${v[2] === "key" ? "key" : ""}">${v[1]}</span></div>`).join("")}</div>
-        <div class="chips">${d.chips.map((c) => `<span class="chip clickable" data-var="${c}">${c}</span>`).join("")}</div>
-        <div class="click-hint">Click a variable to open its variable tag panel.</div>
+        <div class="chips">${allCols.map((c) => `<span class="chip clickable" data-var="${c}">${c}</span>`).join("")}</div>
+        <div class="click-hint">${catGroups ? "The whole column list for this dataset — click one for its schema." : "Click a variable to open its variable tag panel."}</div>
       </section>
-      ${catGroups ? `<div class="divider"></div><section>
-        <div class="section-title"><span>Theme Groups</span><span>${Object.keys(catGroups).length} groups</span></div>
-        <div class="category-grid">${Object.entries(catGroups).map(([k, g]) => `<div class="category-card" data-category-group="${k}"><strong>${g.title}</strong><span>${g.examples.slice(0, 3).join(", ")}</span><div class="tag">${g.count} cols</div></div>`).join("")}</div>
-      </section>` : ""}
       <div class="divider"></div>
       <section>
         <div class="section-title"><span>Recommended Views</span><span>outputs</span></div>
@@ -405,10 +772,9 @@ const Panels = {
       <button class="cta" data-cta>Show Dataset on Map ＋</button>`;
 
     this.body.querySelector("[data-back]").onclick = () => this.renderProject();
-    this.body.querySelector("[data-cta]").onclick = () => this.applyDatasetMap(d.map);
+    this.body.querySelector("[data-cta]").onclick = () => this.applyRecommended(id);
     this.body.querySelectorAll(".var-row[data-var], .chip[data-var]").forEach((el) => el.onclick = () => this.renderTagDetail("variable", el.dataset.var, "dataset"));
-    this.body.querySelectorAll("[data-category-group]").forEach((c) => c.onclick = () => this.renderTagDetail("group", c.dataset.categoryGroup, "dataset"));
-    this.applyDatasetMap(d.map); // clicking the dataset already reflects on the map
+    this.applyRecommended(id); // opening a dataset applies its recommended map + syncs the panel
     this.scrollTop();
   },
 
