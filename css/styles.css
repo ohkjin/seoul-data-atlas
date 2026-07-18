@@ -331,7 +331,9 @@ html, body {
 
 /* floating map control panel */
 .map-control {
-  position: absolute; top: 16px; left: 16px; z-index: 6; width: 236px;
+  /* one constant width for every dataset/panel state — the panel must not resize
+     as you move between datasets (Layer-Set editor or classic controls) */
+  position: absolute; top: 16px; left: 16px; z-index: 6; width: 320px;
   background: linear-gradient(180deg, rgba(14,18,28,0.66), rgba(9,12,20,0.82));
   border: 1px solid rgba(255,255,255,0.09); border-radius: 12px;
   padding: 14px; backdrop-filter: blur(24px);
@@ -408,9 +410,9 @@ html, body {
 /* when a nav overlay panel is pinned open, move the toolbar to the right of it.
    (No CSS transition here: deck.gl's constant repaint keeps a `left` transition
    stuck mid-flight, so it would pin the toolbar at its start position.) */
-.map-stage.panel-pinned .map-toolbar { left: 268px; }
-/* the Layer-Set editor widens the panel to 320px → push the toolbar clear of it */
-.map-stage.ls-wide.panel-pinned .map-toolbar { left: 352px; }
+/* clears the pinned panel (16px gutter + 320px panel + 16px gap) — constant, so the
+   toolbar never shifts when switching datasets */
+.map-stage.panel-pinned .map-toolbar { left: 352px; }
 .map-toolbar button {
   background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border);
   border-radius: 7px; color: var(--muted); font-size: 11px; font-family: var(--font-ui);
@@ -1245,8 +1247,7 @@ html, body {
 .ls-hint { font-size: 10px; color: var(--muted); line-height: 1.45; margin-top: 3px; }
 .ls-hint-warn { color: rgba(255,184,107,0.75); }
 
-/* wider map-control while the Layer-Set editor is mounted (default 236px is cramped) */
-.map-stage.ls-wide #map-control { width: 320px; }
+/* (panel width is constant — see .map-control above; no per-dataset resizing) */
 
 /* paged full editor (map panel): preset pager + page card (prototype3 kepler-toned look) */
 .ls-pager { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }

@@ -144,8 +144,8 @@
       const mcTitle = document.getElementById("mc-ls-title");
       const repTitle = document.getElementById("mc-rep-title");
       const repSeg = document.getElementById("mc-representation");
-      const mcStage = document.getElementById("map-stage");
-      if (mcStage) mcStage.classList.toggle("ls-wide", semantic); // roomier while the Layer-Set editor is up
+      // NOTE: the panel width is constant (see .map-control in styles.css) — we deliberately
+      // do NOT resize it per dataset, so the layout stays stable as you switch datasets.
       if (mcHost) { mcHost.hidden = !semantic; if (!semantic) mcHost.innerHTML = ""; }
       if (mcTitle) mcTitle.hidden = !semantic;
       if (repTitle) repTitle.hidden = semantic;
