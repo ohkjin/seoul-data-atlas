@@ -8,7 +8,7 @@
 // Drives the real engine: Panels.applyRepresentation + map.unifyLayerColors /
 // setSectorView / setColorScheme. Other datasets keep the classic controls.
 (function () {
-  const REP_ICON = { choropleth: "▦", bars: "▮", columns: "▮", rings: "◎", radial: "✳", dominant: "◧", buildingmix: "◱", points: "⊙" };
+  const REP_ICON = { choropleth: "▦", bars: "▮", columns: "▮", rings: "◎", radial: "✳", dominant: "◧", buildingmix: "◱", points: "⊙", signedcols: "⇅", divided: "◨" };
   // colour themes — keys match map.js COLOR_SCHEMES; css gradient for the swatch
   const THEMES = [
     { key: "default", label: "Amber", grad: "linear-gradient(90deg,#3a2a10,#ffc857,#ff5a28)" },
@@ -26,12 +26,16 @@
   ];
 
   // Built-in preset pages per dataset. supported=false → shown but greyed (real map can't render yet).
+  //   group:true  → the page is a composite group of variable-layers (colour/height/points channels)
+  //   glyph:true  → the group also carries the six-theme sector glyph (Sales "Across")
+  // groupMeasures/baseRep parameterize the group engine so it isn't Sales-specific.
   const LS_DATASETS = {
     sales: {
+      groupMeasures: "salesGroups", baseRep: "choropleth",
       pages: [
-        { key: "single", label: "Single", icon: "▪", supported: true, reps: ["choropleth"], measures: "salesGroups", hint: "One theme's heat-sensitivity, as a choropleth." },
+        { key: "single", label: "Single", icon: "▪", supported: true, group: true, measures: "salesGroups", hint: "One theme's heat-sensitivity per layer, composited." },
         { key: "total", label: "Total", icon: "▣", supported: false, msg: "No total-magnitude metric on the real map yet." },
-        { key: "across", label: "Across", icon: "▤", supported: true, reps: ["rings", "columns", "radial", "dominant"], measures: null, hint: "All six sales themes at once, as per-dong glyphs." },
+        { key: "across", label: "Across", icon: "▤", supported: true, group: true, glyph: true, reps: ["rings", "columns", "radial", "dominant"], measures: "salesGroups", hint: "All six sales themes at once, as per-dong glyphs." },
         { key: "within", label: "Within", icon: "⊞", supported: false, msg: "Per-group view is coming to the real map." },
         { key: "comparison", label: "Compare", icon: "⇄", supported: false, msg: "A-vs-B diverging view is coming to the real map." },
       ],
@@ -39,6 +43,20 @@
     rhsi: {
       pages: [
         { key: "single", label: "Single", icon: "▪", supported: true, reps: ["choropleth", "bars", "buildingmix", "points"], measures: "rhsiOnly", hint: "The retail heat-sensitivity index per dong." },
+      ],
+    },
+    // Urban Features — composite group of urban-context variable-layers (same model as Sales Single).
+    context: {
+      groupMeasures: "contextVars", baseRep: "choropleth",
+      pages: [
+        { key: "single", label: "Single", icon: "▪", supported: true, group: true, measures: "contextVars", hint: "One urban feature per layer, composited on colour / height / points." },
+      ],
+    },
+    // SHAP — colours by RHSI (the value it explains); its "variables" are the signed feature
+    // decomposition, driven by the app's own #shap-feature-filter, so no channel-layer group.
+    shap: {
+      pages: [
+        { key: "single", label: "Single", icon: "▪", supported: true, reps: ["buildingmix", "signedcols", "divided", "choropleth", "bars", "points"], measures: "rhsiOnly", hint: "RHSI coloured by what the model explains — include/exclude features below." },
       ],
     },
   };
@@ -72,7 +90,7 @@
       const repSeg = document.getElementById("mc-representation");
       const mcStage = document.getElementById("map-stage");
       if (mcStage) mcStage.classList.toggle("ls-wide", semantic); // roomier while the Layer-Set editor is up
-      if (mcHost) mcHost.hidden = !semantic;
+      if (mcHost) { mcHost.hidden = !semantic; if (!semantic) mcHost.innerHTML = ""; }
       if (mcTitle) mcTitle.hidden = !semantic;
       if (repTitle) repTitle.hidden = semantic;
       if (repSeg) repSeg.hidden = semantic;
@@ -84,7 +102,14 @@
         opacity: (typeof map !== "undefined" && map && map.opacity != null) ? map.opacity : 0.85,
         glow: (typeof map !== "undefined" && map && map.glow != null) ? map.glow : 1,
         colorScale: "quantile", outline: 1, size: 1, label: false };
-      if (dsId === "sales" && !this._grp[dsId]) this._grp[dsId] = { single: { layers: [this._newLayer("color", 0)] }, across: { rep: "rings", layers: [] } };
+      if (!this._grp[dsId]) {   // one group per group-page (glyph pages start with no extra layers)
+        const g = {};
+        (LS_DATASETS[dsId].pages || []).forEach((p) => {
+          if (!p.group) return;
+          g[p.key] = p.glyph ? { rep: (p.reps && p.reps[0]) || "rings", layers: [] } : { layers: [this._newLayer(dsId, "color", 0)] };
+        });
+        this._grp[dsId] = g;
+      }
       if (mcHost) this.renderFull(dsId, mcHost);
       if (rail) this.renderCompact(dsId, rail);
     },
@@ -110,12 +135,12 @@
         const rep = (typeof Panels !== "undefined") ? Panels.selectedRep : null;
         const measures = this._measures(active.measures);
         const scheme = this._appear[dsId].scheme;
-        const isSingle = dsId === "sales" && active.key === "single";
-        const isAcross = dsId === "sales" && active.key === "across";
+        const isAcross = !!(active.group && active.glyph);
+        const isSingle = !!(active.group && !active.glyph);
         const isGroup = isSingle || isAcross;
         let mainRows;
         if (isSingle) {
-          mainRows = this._groupEditorHTML(dsId, "single", "Layers · one variable each");
+          mainRows = this._groupEditorHTML(dsId, active.key, "Layers · one variable each");
         } else if (isAcross) {
           mainRows = this._acrossEditorHTML(dsId);
         } else {
@@ -129,8 +154,8 @@
         const saveLabel = activeKey.indexOf("saved:") === 0 ? "Update" : "Save as…";
         const isSaved = activeKey.indexOf("saved:") === 0;
         const actions = `<div class="ls-actions"><button class="ls-act" data-ls-save>${saveLabel}</button><button class="ls-act" data-ls-reset>Reset</button></div>`;
-        const nAcross = isAcross ? this._grp[dsId].across.layers.length : 0;
-        const gnote = isSingle ? "group of " + this._grp[dsId].single.layers.length
+        const nAcross = isAcross ? this._grpOf(dsId, active.key).layers.length : 0;
+        const gnote = isSingle ? "group of " + this._grpOf(dsId, active.key).layers.length
           : isAcross ? "glyph + " + nAcross + " layer" + (nAcross === 1 ? "" : "s") : "";
         // #1 section chrome + badges
         const head = `<span class="ls-badge s-${active.key}"><i>${active.icon || "▪"}</i>${active.label}</span>` +
@@ -185,7 +210,8 @@
 
       let measHTML = "";
       const measures = this._measures(active && active.measures);
-      if (active && active.key === "single" && measures.length > 1) measHTML = `<div class="ls-row-l">${dsId === "sales" ? "Group" : "Variable"}</div>${this._measureSelect(measures, (typeof map !== "undefined" && map) ? map.colorBy : null)}`;
+      // group pages pick their variables per-layer in the map panel, so only non-group pages get a dropdown
+      if (active && !active.group && measures.length > 1) measHTML = `<div class="ls-row-l">Variable</div>${this._measureSelect(measures, (typeof map !== "undefined" && map) ? map.colorBy : null)}`;
 
       host.innerHTML = `<div class="ls-inner">${presetHTML}${measHTML}</div>`;
       host.querySelectorAll("[data-ls-page]").forEach((b) => b.onclick = () => this._selectPage(dsId, b.dataset.lsPage));
@@ -194,15 +220,15 @@
     },
 
     // ---- Single = group of variable-layers (composite) ----
-    _newLayer(channel, measureIdx) {
-      const m = this._measures("salesGroups");
+    _newLayer(dsId, channel, measureIdx) {
+      const m = this._measures(this._groupMeasures(dsId));
       return { id: "L" + (++this._uid), channel: channel || "color", measure: (m[measureIdx] || m[0]).key };
     },
     _curPage(dsId) { const p = this._pageByKey(dsId, this._page[dsId]); return p ? p.key : "single"; },
     _grpOf(dsId, pageKey) { return this._grp[dsId][pageKey || this._curPage(dsId)]; },
     // list of variable-layer rows (shared by Single + Across "extra layers")
-    _layerRowsHTML(grp, minLayers) {
-      const measures = this._measures("salesGroups");
+    _layerRowsHTML(dsId, grp, minLayers) {
+      const measures = this._measures(this._groupMeasures(dsId));
       return grp.layers.map((L) => `<div class="ls-layer">
         <div class="ls-seg ls-lchan">${CHANNELS.map((c) => `<button class="ls-b2${L.channel === c.key ? " on" : ""}" data-ls-lchan="${L.id}" data-ch="${c.key}" title="${c.label}"><i>${c.icon}</i></button>`).join("")}</div>
         <select class="ls-select ls-lvar" data-ls-lvar="${L.id}">${measures.map((m) => `<option value="${m.key}"${m.key === L.measure ? " selected" : ""}>${m.label}</option>`).join("")}</select>
@@ -210,14 +236,14 @@
     },
     _groupEditorHTML(dsId, pageKey, label) {
       const grp = this._grpOf(dsId, pageKey);
-      return `<div class="ls-row-l">${label}</div><div class="ls-layers">${this._layerRowsHTML(grp, 1)}<button class="ls-addlayer" data-ls-addlayer>＋ Add variable layer</button></div>`;
+      return `<div class="ls-row-l">${label}</div><div class="ls-layers">${this._layerRowsHTML(dsId, grp, 1)}<button class="ls-addlayer" data-ls-addlayer>＋ Add variable layer</button></div>`;
     },
     _acrossEditorHTML(dsId) {
       const g = this._grp[dsId].across, rep = g.rep;
       const glyphs = ["rings", "columns", "radial", "dominant"];
       const glyphRow = `<div class="ls-row-l">Six-theme glyph</div><div class="ls-seg ls-seg-wrap">${glyphs.map((r) =>
         `<button class="ls-b${r === rep ? " on" : ""}" data-ls-glyph="${r}"><i>${REP_ICON[r] || "◎"}</i><span>${this._repLabel(r)}</span></button>`).join("")}</div>`;
-      const extra = `<div class="ls-row-l">Extra variable layers</div><div class="ls-layers">${this._layerRowsHTML(g, 0)}<button class="ls-addlayer" data-ls-addlayer>＋ Add variable layer</button></div>`;
+      const extra = `<div class="ls-row-l">Extra variable layers</div><div class="ls-layers">${this._layerRowsHTML(dsId, g, 0)}<button class="ls-addlayer" data-ls-addlayer>＋ Add variable layer</button></div>`;
       return glyphRow + extra;
     },
     _setGlyph(dsId, rep) { this._grp[dsId].across.rep = rep; this._applyActive(dsId); },
@@ -227,14 +253,16 @@
     },
     _addLayer(dsId) {
       const grp = this._grpOf(dsId), used = grp.layers.map((L) => L.measure);
-      const measures = this._measures("salesGroups");
+      const measures = this._measures(this._groupMeasures(dsId));
       const nextIdx = Math.max(0, measures.findIndex((m) => used.indexOf(m.key) === -1));
       const nextChan = CHANNELS[Math.min(grp.layers.length, CHANNELS.length - 1)].key;
-      grp.layers.push(this._newLayer(nextChan, nextIdx < 0 ? 0 : nextIdx));
+      grp.layers.push(this._newLayer(dsId, nextChan, nextIdx < 0 ? 0 : nextIdx));
       this._applyActive(dsId);
     },
     _removeLayer(dsId, layerId) {
-      const grp = this._grpOf(dsId), min = this._curPage(dsId) === "single" ? 1 : 0;
+      // a glyph page (Across) may drop to zero extra layers; a plain group keeps at least one
+      const page = this._builtin(dsId, this._curPage(dsId));
+      const grp = this._grpOf(dsId), min = (page && page.glyph) ? 0 : 1;
       if (grp.layers.length <= min) return;
       grp.layers = grp.layers.filter((L) => L.id !== layerId);
       this._applyActive(dsId);
@@ -250,14 +278,18 @@
       });
       return { on: on, firstColor: firstColor };
     },
-    _applyActive(dsId) { if (this._curPage(dsId) === "across") this._applyAcross(dsId); else this._applySingle(dsId); },
+    _applyActive(dsId) {
+      const page = this._builtin(dsId, this._curPage(dsId));
+      if (page && page.glyph) this._applyAcross(dsId); else this._applySingle(dsId);
+    },
     // Single = variable-layers composited on data channels (no sector glyph).
     _applySingle(dsId) {
       if (typeof Panels === "undefined" || typeof map === "undefined" || !map) { this.sync(); return; }
-      Panels.applyRepresentation("sales", "choropleth");
+      const baseRep = (LS_DATASETS[dsId] && LS_DATASETS[dsId].baseRep) || "choropleth";
+      Panels.applyRepresentation(dsId, baseRep);
       if (typeof exitTimeMode === "function") exitTimeMode();
       map.layerVar = {}; map.layerHeightVar = {};
-      const c = this._compositeLayers(this._grp[dsId].single.layers);
+      const c = this._compositeLayers(this._grpOf(dsId, this._curPage(dsId)).layers);
       c.on.boundary = true; c.on.roads = true;
       Object.keys(map.layers).forEach((k) => { map.layers[k] = !!c.on[k]; });
       if (c.firstColor) map.colorBy = c.firstColor;
@@ -269,7 +301,7 @@
     _applyAcross(dsId) {
       if (typeof Panels === "undefined" || typeof map === "undefined" || !map) { this.sync(); return; }
       const g = this._grp[dsId].across;
-      Panels.applyRepresentation("sales", g.rep);   // sets sectorView + base allow-list
+      Panels.applyRepresentation(dsId, g.rep);   // sets sectorView + base allow-list
       map.layerVar = {}; map.layerHeightVar = {};
       const c = this._compositeLayers(g.layers);
       map.layers.boundary = true;
@@ -339,8 +371,18 @@
     _measures(kind) {
       if (kind === "salesGroups") { const S = (typeof SALES_GROUPS !== "undefined") ? SALES_GROUPS : {}; return Object.keys(S).map((k) => ({ key: "grp_" + k, label: S[k].title })); }
       if (kind === "rhsiOnly") { return [{ key: "RHSI_retail", label: "RHSI (heat sensitivity)" }]; }
+      // Urban context: the four theme groups first, then every individual urban feature.
+      if (kind === "contextVars") {
+        const C = (typeof CONTEXT_GROUPS !== "undefined") ? CONTEXT_GROUPS : {};
+        const groups = Object.keys(C).map((k) => ({ key: "grp_" + k, label: C[k].title + " (group)" }));
+        const keys = (typeof URBAN_FEATURE_KEYS !== "undefined") ? URBAN_FEATURE_KEYS : [];
+        const L = (typeof URBAN_FEATURE_LABELS !== "undefined") ? URBAN_FEATURE_LABELS : {};
+        return groups.concat(keys.map((k) => ({ key: k, label: L[k] || k })));
+      }
       return [];
     },
+    // measures kind used by this dataset's group variable-layers
+    _groupMeasures(dsId) { return (LS_DATASETS[dsId] && LS_DATASETS[dsId].groupMeasures) || "salesGroups"; },
     _validMeasure(key, kind) { return this._measures(kind).some((m) => m.key === key) ? key : null; },
     _builtin(dsId, key) { return LS_DATASETS[dsId].pages.find((p) => p.key === key); },
     _savedFor(dsId) { return (this._saved && this._saved[dsId]) || []; },
@@ -350,13 +392,16 @@
       if (key && key.indexOf("saved:") === 0) {
         const s = this._savedById(dsId, key.slice(6)); if (!s) return this._builtin(dsId, "single");
         const base = this._builtin(dsId, s.page) || {};
-        return { key: s.page, label: s.name, icon: "★", supported: base.supported !== false, reps: base.reps, measures: base.measures, hint: base.hint, _saved: s };
+        // carry the base page's group/glyph flags so saved presets take the same code paths
+        return { key: s.page, label: s.name, icon: "★", supported: base.supported !== false, reps: base.reps,
+          measures: base.measures, hint: base.hint, group: base.group, glyph: base.glyph, _saved: s };
       }
       return this._builtin(dsId, key);
     },
     _inferPage(dsId) {
       const sv = (typeof map !== "undefined" && map) ? map.sectorView : null;
-      if (dsId === "sales" && ["rings", "columns", "radial", "dominant"].includes(sv)) return "across";
+      const glyphPage = (LS_DATASETS[dsId].pages || []).find((p) => p.glyph);
+      if (glyphPage && sv && (glyphPage.reps || []).includes(sv)) return glyphPage.key;
       return "single";
     },
 
@@ -370,36 +415,30 @@
         const s = page._saved;
         if (s.appear) this._appear[dsId] = Object.assign(this._appear[dsId] || {}, s.appear);
         else if (s.scheme) this._appear[dsId].scheme = s.scheme;
-        if (dsId === "sales" && page.key === "single") {
-          this._grp[dsId].single = { layers: (s.layers && s.layers.length) ? s.layers.map((L) => this._cloneLayer(L)) : [this._newLayer("color", 0)] };
+        if (page.group && !page.glyph) {
+          this._grp[dsId][page.key] = { layers: (s.layers && s.layers.length) ? s.layers.map((L) => this._cloneLayer(L)) : [this._newLayer(dsId, "color", 0)] };
           this._applyActive(dsId); return;
         }
-        if (dsId === "sales" && page.key === "across") {
-          this._grp[dsId].across = { rep: s.rep || "rings", layers: (s.layers || []).map((L) => this._cloneLayer(L)) };
+        if (page.group && page.glyph) {
+          this._grp[dsId][page.key] = { rep: s.rep || "rings", layers: (s.layers || []).map((L) => this._cloneLayer(L)) };
           this._applyActive(dsId); return;
         }
         this._applyPage(dsId, s.rep, s.measure);
         return;
       }
-      if (dsId === "sales" && (page.key === "single" || page.key === "across")) { this._applyActive(dsId); return; }
+      if (page.group) { this._applyActive(dsId); return; }
       this._applyPage(dsId, (page.reps && page.reps[0]) || null);
     },
     _cloneLayer(L) { return { id: "L" + (++this._uid), channel: L.channel || "color", measure: L.measure }; },
+    // Non-group pages (RHSI, SHAP): one representation + the dataset's colour metric.
+    // For SHAP this also brings up the app's own #shap-feature-filter via _syncShapFeatureControl.
     _applyPage(dsId, rep, measure) {
       if (typeof Panels === "undefined" || typeof map === "undefined" || !map) { this.sync(); return; }
       const page = this._pageByKey(dsId, this._page[dsId]);
       this._applyAppearance(dsId);
-      if (page.key === "across") {
-        Panels.applyRepresentation(dsId, rep);
-      } else if (dsId === "sales") { // single
-        Panels.applyRepresentation("sales", "choropleth");
-        if (typeof exitTimeMode === "function") exitTimeMode();
-        const meas = measure || this._validMeasure(map.colorBy, "salesGroups") || this._measures("salesGroups")[0].key;
-        map.unifyLayerColors(meas);
-      } else { // rhsi single
-        Panels.applyRepresentation("rhsi", rep || "choropleth");
-        map.unifyLayerColors(measure || "RHSI_retail");
-      }
+      Panels.applyRepresentation(dsId, rep || (page.reps && page.reps[0]) || "choropleth");
+      const list = this._measures(page.measures);
+      if (list.length) map.unifyLayerColors(measure || this._validMeasure(map.colorBy, page.measures) || list[0].key);
       if (typeof updateLegend === "function") updateLegend();
       this.sync();
     },
@@ -423,8 +462,12 @@
       const snap = { page: page.key, rep: (typeof Panels !== "undefined") ? Panels.selectedRep : null,
         measure: (typeof map !== "undefined" && map) ? map.colorBy : null, scheme: this._appear[dsId].scheme,
         appear: Object.assign({}, this._appear[dsId]) };
-      if (dsId === "sales" && page.key === "single") snap.layers = (this._grp[dsId].single.layers || []).map((L) => ({ channel: L.channel, measure: L.measure }));
-      if (dsId === "sales" && page.key === "across") { snap.rep = this._grp[dsId].across.rep; snap.layers = (this._grp[dsId].across.layers || []).map((L) => ({ channel: L.channel, measure: L.measure })); }
+      const gp = this._builtin(dsId, page.key);
+      if (gp && gp.group) {
+        const g = this._grpOf(dsId, page.key);
+        snap.layers = (g.layers || []).map((L) => ({ channel: L.channel, measure: L.measure }));
+        if (gp.glyph) snap.rep = g.rep;
+      }
       return snap;
     },
     _save(dsId) {
@@ -449,8 +492,12 @@
         if (s) { if (s.appear) this._appear[dsId] = Object.assign(this._appear[dsId], s.appear); else if (s.scheme) this._appear[dsId].scheme = s.scheme; this._selectPage(dsId, activeKey); return; }
       }
       const page = this._builtin(dsId, activeKey) || this._builtin(dsId, "single");
-      if (dsId === "sales" && page.key === "single") { this._grp[dsId].single = { layers: [this._newLayer("color", 0)] }; this._applyActive(dsId); return; }
-      if (dsId === "sales" && page.key === "across") { this._grp[dsId].across = { rep: "rings", layers: [] }; this._applyActive(dsId); return; }
+      if (page.group) {
+        this._grp[dsId][page.key] = page.glyph
+          ? { rep: (page.reps && page.reps[0]) || "rings", layers: [] }
+          : { layers: [this._newLayer(dsId, "color", 0)] };
+        this._applyActive(dsId); return;
+      }
       this._applyPage(dsId, (page.reps && page.reps[0]) || null);
     },
     _deleteSaved(dsId, id) {
