@@ -738,6 +738,9 @@ const Atlas = {
     // colour by them (gives Weather / Heat-Day Summary a static, non-animated view).
     metrics.push({ key: "n_hot_days", label: "Extreme-heat days", kind: "count" });
     metrics.push({ key: "n_mild_days", label: "Mild days", kind: "count" });
+    // Total card sales per dong = the six theme totals summed. Magnitude (not a
+    // sensitivity ratio), so it gives the Sales "Total" preset a real metric.
+    metrics.push({ key: "sales_total", label: "Total sales (₩)", kind: "salesTotal" });
     URBAN_FEATURE_KEYS.forEach((k) =>
       metrics.push({ key: k, label: URBAN_FEATURE_LABELS[k], kind: "feature", signed: k === "delta_daypop" }));
     (this.industryCatalog?.top20 || []).forEach((c) => {
@@ -774,6 +777,7 @@ const Atlas = {
 
   metricValue(dong, spec) {
     if (!spec) return null;
+    if (spec.kind === "salesTotal") { const t = this.groupTotalsByDong()[dong.dong_code]; return t ? t.reduce((a, b) => a + (b || 0), 0) : null; }
     if (spec.kind === "industry") return this.dongIndustrySensitivity(dong.dong_code, spec.key);
     if (spec.kind === "group") return spec.gkind === "sales" ? this.dongGroupSensitivity(dong.dong_code, spec.columns) : dong[spec.headline];
     return dong[spec.key];
@@ -833,7 +837,21 @@ const Atlas = {
   // Same rank logic as metricColorScale but driven by an explicit value array —
   // lets the map build a scale from whatever grain (seoul/gu/dong) it renders,
   // decoupled from the camera scope.
-  colorScaleFromValues(vals, spec) {
+  // mode: "quantile" (default, rank-based — resists skew), "linear" (raw min–max),
+  // or "quantize" (linear snapped to 6 buckets).
+  colorScaleFromValues(vals, spec, mode) {
+    if (mode === "linear" || mode === "quantize") {
+      const nums = vals.filter((v) => v != null && !Number.isNaN(v));
+      if (!nums.length) return () => null;
+      let lo = Math.min(...nums), hi = Math.max(...nums);
+      if (spec.signed) { const m = Math.max(Math.abs(lo), Math.abs(hi)) || 1; lo = -m; hi = m; }
+      const span = (hi - lo) || 1, steps = 6;
+      return (value) => {
+        if (value == null || Number.isNaN(value)) return null;
+        const t = Math.max(0, Math.min(1, (value - lo) / span));
+        return mode === "quantize" ? Math.round(t * (steps - 1)) / (steps - 1) : t;
+      };
+    }
     if (spec.signed) {
       const neg = vals.filter((v) => v < 0).sort((a, b) => a - b);
       const pos = vals.filter((v) => v >= 0).sort((a, b) => a - b);

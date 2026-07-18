@@ -101,6 +101,8 @@ class AtlasMap3D {
     this.layers = { ...DEFAULT_LAYERS };
     this.colorBy = "RHSI_retail";
     this.colorScheme = null;   // Layer-Set colour theme override (null = built-in ramps)
+    this.colorScaleMode = "quantile"; // quantile | linear | quantize
+    this.outlineWidth = 0;     // choropleth outline in px (0 = no stroke)
     this.heightBy = "RHSI_retail";
     // Multivariate "Sector view" over the 6 sales themes: null | rings | radial | columns | dominant.
     this.sectorView = null;
@@ -206,10 +208,12 @@ class AtlasMap3D {
   }
   // Layer-Set "color theme" — null/"default" = the built-in ramps.
   setColorScheme(name) { this.colorScheme = (name && name !== "default" && COLOR_SCHEMES[name]) ? name : null; this.render(); }
+  setColorScaleMode(m) { this.colorScaleMode = ["quantile", "linear", "quantize"].includes(m) ? m : "quantile"; this.render(); }
+  setOutlineWidth(v) { this.outlineWidth = Math.max(0, +v || 0); this.render(); }
   // In time mode the data ramp is always the warm sequential (dim→amber→red) so
   // temperature reads as literal heat regardless of the selected static metric.
   _activeRamp(key) { return this.timeMode ? RAMP_SEQUENTIAL : this._rampFor(Atlas.metricSpec(key || this.colorBy)); }
-  _sig() { return [this.scope.level, this.scope.guCode, this.scope.dongCode || "", this.grain || "", this.colorBy, this.heightBy, JSON.stringify(this.layerVar), JSON.stringify(this.layerHeightVar), JSON.stringify(this.layerRadius), this.sectorView || "", this.shapFeatures ? this.shapFeatures.join(",") : "shap:all", this.timeMode ? "T" + this.timeVar + this.timeDayIndex : "S"].join("|"); }
+  _sig() { return [this.scope.level, this.scope.guCode, this.scope.dongCode || "", this.grain || "", this.colorBy, this.heightBy, this.colorScheme || "", this.colorScaleMode, this.outlineWidth, JSON.stringify(this.layerVar), JSON.stringify(this.layerHeightVar), JSON.stringify(this.layerRadius), this.sectorView || "", this.shapFeatures ? this.shapFeatures.join(",") : "shap:all", this.timeMode ? "T" + this.timeVar + this.timeDayIndex : "S"].join("|"); }
 
   // ---------- spatial grain (data-layer granularity, independent of camera) ----------
   _keyFor(layer, channel = "color") {
@@ -257,7 +261,7 @@ class AtlasMap3D {
   _colorAccessor(alphaMul = 1) { return this._colorAccessorForKey(this.colorBy, alphaMul); }
   _colorAccessorForKey(key, alphaMul = 1) {
     const spec = Atlas.metricSpec(key);
-    const scale = Atlas.colorScaleFromValues(Atlas.valuesForGrain(this._grain(), this.scope, spec), spec);
+    const scale = Atlas.colorScaleFromValues(Atlas.valuesForGrain(this._grain(), this.scope, spec), spec, this.colorScaleMode);
     const ramp = this._rampFor(spec);
     const a = Math.round(this.opacity * 255 * alphaMul);
     const gl = Math.max(0, Math.min(1, (this.glow - 1) * 0.35));
@@ -388,7 +392,7 @@ class AtlasMap3D {
     const hspec = Atlas.metricSpec(heightKey || this.heightBy);
     const colorVals = Atlas.valuesForGrain(this._grain(), this.scope, spec);
     const heightVals = Atlas.valuesForGrain(this._grain(), this.scope, hspec);
-    const colorScale = Atlas.colorScaleFromValues(colorVals, spec);
+    const colorScale = Atlas.colorScaleFromValues(colorVals, spec, this.colorScaleMode);
     const magScale = Atlas.magnitudeScaleFromValues(heightVals, hspec);
     return this._grainRegions().map((r) => {
       const value = this._regionValue(r, spec);
@@ -406,7 +410,10 @@ class AtlasMap3D {
     const isCity = this._grain() !== "dong";
     return new deck.GeoJsonLayer({
       id: "choropleth", data: { type: "FeatureCollection", features: this._grainFeatures(key, heightKey) },
-      pickable: true, stroked: false, filled: true, extruded: true,
+      pickable: true, stroked: this.outlineWidth > 0, filled: true, extruded: true,
+      lineWidthUnits: "pixels", getLineWidth: this.outlineWidth,
+      lineWidthMinPixels: this.outlineWidth > 0 ? Math.max(0.3, this.outlineWidth) : 0,
+      getLineColor: [10, 14, 24, 170],
       material: { ambient: 0.55, diffuse: 0.7, shininess: 60, specularColor: [140, 170, 255] },
       getFillColor: (f) => (f.properties.dong_code && f.properties.dong_code === this.selectedDongCode ? [238, 244, 255, 255] : color(f.properties.colorVal)),
       getElevation: (f) => (Math.abs(f.properties.heightVal || 0) / hMax) * (isCity ? 90000 : 55000) * this.elevationScale,

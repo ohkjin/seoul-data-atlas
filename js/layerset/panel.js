@@ -49,7 +49,7 @@
       temporal: true, timeRep: "choropleth",   // sales choropleth plays as the daily-sales sequence
       pages: [
         singlePage("salesGroups", "One theme's heat-sensitivity."),
-        { key: "total", label: "Total", icon: "▣", supported: false, msg: "No total-magnitude metric on the real map yet." },
+        { key: "total", label: "Total", icon: "▣", supported: true, reps: DESIGN_REPS, measures: "salesTotal", hint: "All six themes summed — total card sales per dong." },
         { key: "across", label: "Across", icon: "▤", supported: true, group: true, glyph: true, reps: ["rings", "columns", "radial", "dominant"], measures: "salesGroups", hint: "All six sales themes at once, as per-dong glyphs." },
         { key: "within", label: "Within", icon: "⊞", supported: false, msg: "Per-group view is coming to the real map." },
         comparePage("salesGroups"),
@@ -161,7 +161,7 @@
         glow: (typeof map !== "undefined" && map && map.glow != null) ? map.glow : 1,
         elevation: (typeof map !== "undefined" && map && map.elevationScale != null) ? map.elevationScale : 1,
         radius: (typeof map !== "undefined" && map && map.radiusScale != null) ? map.radiusScale : 1,
-        colorScale: "quantile", outline: 1, size: 1, label: false };
+        colorScale: "quantile", outline: 0 };
       if (!this._grp[dsId]) {   // one group per group-page (glyph pages start with no extra layers)
         const g = {};
         (LS_DATASETS[dsId].pages || []).forEach((p) => {
@@ -436,6 +436,8 @@
       // re-assert after applyRepresentation, which pushes the representation's own slider values
       if (a.elevation != null && map.setElevationScale) map.setElevationScale(+a.elevation);
       if (a.radius != null && map.setRadiusScale) map.setRadiusScale(+a.radius);
+      if (a.outline != null && map.setOutlineWidth) map.setOutlineWidth(+a.outline);
+      if (a.colorScale && map.setColorScaleMode) map.setColorScaleMode(a.colorScale);
     },
     _setAppear(dsId, field, val, isSliderLive) {
       const a = this._appear[dsId]; if (!a) return;
@@ -446,7 +448,8 @@
         else if (field === "glow") { if (map.setGlow) map.setGlow(+val); else { map.glow = +val; if (map.render) map.render(); } }
         else if (field === "elevation") { if (map.setElevationScale) map.setElevationScale(+val); }
         else if (field === "radius") { if (map.setRadiusScale) map.setRadiusScale(+val); }
-        // outline / size / label / colorScale are stored only (real map can't drive them yet)
+        else if (field === "outline") { if (map.setOutlineWidth) map.setOutlineWidth(+val); }
+        else if (field === "colorScale") { if (map.setColorScaleMode) map.setColorScaleMode(val); }
       }
       if (!isSliderLive) this.sync();   // reflect discrete changes (theme/scale/label); skip during slider drag
     },
@@ -474,10 +477,8 @@
         <label class="ls-arow"><span>Radius</span><input type="range" class="ls-mini" data-ls-ap="radius" min="0.3" max="3" step="0.1" value="${a.radius}"></label>
         <label class="ls-arow"><span>Opacity</span><input type="range" class="ls-mini" data-ls-ap="opacity" min="0.2" max="1" step="0.05" value="${a.opacity}"></label>
         <label class="ls-arow"><span>Glow</span><input type="range" class="ls-mini" data-ls-ap="glow" min="0" max="2" step="0.1" value="${a.glow}"></label>
-        <div class="ls-arow ls-dim"><span>Color scale</span><div class="ls-seg ls-scaleseg">${scales}</div><span class="ls-coming">coming</span></div>
-        <label class="ls-arow ls-dim"><span>Outline</span><input type="range" class="ls-mini" data-ls-ap="outline" min="0" max="4" step="0.5" value="${a.outline}"><span class="ls-coming">coming</span></label>
-        <label class="ls-arow ls-dim"><span>Size</span><input type="range" class="ls-mini" data-ls-ap="size" min="0.5" max="3" step="0.1" value="${a.size}"><span class="ls-coming">coming</span></label>
-        <label class="ls-arow ls-dim"><span>Label</span><span class="ls-apsp"></span><input type="checkbox" data-ls-ap="label"${a.label ? " checked" : ""}><span class="ls-coming">coming</span></label>
+        <div class="ls-arow"><span>Color scale</span><div class="ls-seg ls-scaleseg">${scales}</div></div>
+        <label class="ls-arow"><span>Outline</span><input type="range" class="ls-mini" data-ls-ap="outline" min="0" max="3" step="0.5" value="${a.outline}"></label>
       </div>`;
     },
 
@@ -500,6 +501,7 @@
         return groups.concat(inds);
       }
       if (kind === "rhsiOnly") { return [{ key: "RHSI_retail", label: "RHSI (heat sensitivity)" }]; }
+      if (kind === "salesTotal") { return [{ key: "sales_total", label: "Total sales (₩)" }]; }
       // day counts behind RHSI — the static (non-animated) view for Weather / Heat-Day Summary
       if (kind === "weatherVars") { return [{ key: "n_hot_days", label: "Extreme-heat days" }, { key: "n_mild_days", label: "Mild days" }]; }
       if (kind === "mobilityVars") { return [{ key: "delta_daypop", label: "Δ Daypop (hot vs mild)" }, { key: "dnpr", label: "Day/Night Pop Ratio" }]; }
@@ -630,7 +632,7 @@
     },
     _reset(dsId) {
       const activeKey = this._page[dsId];
-      this._appear[dsId] = { scheme: "default", opacity: 0.85, glow: 1, elevation: 1, radius: 1, colorScale: "quantile", outline: 1, size: 1, label: false };
+      this._appear[dsId] = { scheme: "default", opacity: 0.85, glow: 1, elevation: 1, radius: 1, colorScale: "quantile", outline: 0 };
       if (activeKey.indexOf("saved:") === 0) {   // revert edits to the saved preset's stored config
         const s = this._savedById(dsId, activeKey.slice(6));
         if (s) { if (s.appear) this._appear[dsId] = Object.assign(this._appear[dsId], s.appear); else if (s.scheme) this._appear[dsId].scheme = s.scheme; this._selectPage(dsId, activeKey); return; }
