@@ -269,10 +269,23 @@
         `<button class="ls-b${activeKey === "saved:" + s.id ? " on" : ""}" data-ls-page="saved:${s.id}" title="Saved preset"><i>★</i><span>${s.name}</span></button>`).join("");
       const presetHTML = `<div class="ls-row-l">Preset</div><div class="ls-seg ls-seg-wrap">${builtins}${saved}</div>`;
 
+      // Variable / group picker. For a group page, list the active group's layers so you can
+      // swap what each one shows without opening the full editor; otherwise a single dropdown.
       let measHTML = "";
-      const measures = this._measures(active && active.measures);
-      // group pages pick their variables per-layer in the map panel, so only non-group pages get a dropdown
-      if (active && !active.group && measures.length > 1) measHTML = `<div class="ls-row-l">Variable</div>${this._measureSelect(measures, (typeof map !== "undefined" && map) ? map.colorBy : null)}`;
+      if (active && active.group) {
+        const grp = this._grpOf(dsId, active.key);
+        const gm = this._measures(this._groupMeasures(dsId));
+        if (grp && grp.layers && grp.layers.length && gm.length) {
+          measHTML = `<div class="ls-row-l">Variable</div><div class="ls-layers">${grp.layers.map((L) => {
+            const ch = CHANNELS.find((c) => c.key === L.channel) || CHANNELS[0];
+            return `<div class="ls-layer"><span class="ls-cicon" title="${ch.label}">${ch.icon}</span>
+              <select class="ls-select ls-lvar" data-ls-cvar="${L.id}">${gm.map((m) => `<option value="${m.key}"${m.key === L.measure ? " selected" : ""}>${m.label}</option>`).join("")}</select></div>`;
+          }).join("")}</div>`;
+        }
+      } else {
+        const measures = this._measures(active && active.measures);
+        if (measures.length > 1) measHTML = `<div class="ls-row-l">Variable</div>${this._measureSelect(measures, (typeof map !== "undefined" && map) ? map.colorBy : null)}`;
+      }
 
       // temporal toggle — only for datasets that have a time representation
       let timeHTML = "";
@@ -286,6 +299,7 @@
       host.innerHTML = `<div class="ls-inner">${presetHTML}${measHTML}${timeHTML}</div>`;
       host.querySelectorAll("[data-ls-page]").forEach((b) => b.onclick = () => this._selectPage(dsId, b.dataset.lsPage));
       host.querySelectorAll("[data-ls-time]").forEach((b) => b.onclick = () => this._setTime(dsId, b.dataset.lsTime === "on"));
+      host.querySelectorAll("[data-ls-cvar]").forEach((s) => s.onchange = () => this._setLayerField(dsId, s.dataset.lsCvar, "measure", s.value));
       const sel = host.querySelector("[data-ls-measure]");
       if (sel) sel.onchange = () => this._applyMeasure(dsId, sel.value);
     },

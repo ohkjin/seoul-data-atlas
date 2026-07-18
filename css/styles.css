@@ -1304,6 +1304,8 @@ html, body {
 /* each layer row: representation (design) + variable + remove */
 .ls-lchan { flex: 0 0 104px; min-width: 0; }
 .ls-lvar { flex: 1; min-width: 0; }
+/* right-rail compact variable rows: the layer's design icon + its variable */
+.ls-cicon { flex: none; width: 16px; text-align: center; font-size: 12px; color: var(--muted); }
 .ls-lx { flex: none; width: 24px; height: 28px; border-radius: 6px; border: 1px solid var(--panel-border);
   background: rgba(255,255,255,0.03); color: var(--muted); cursor: pointer; font-size: 14px; }
 .ls-lx:hover:not(:disabled) { color: var(--magenta, #E45C91); border-color: rgba(228,92,145,0.5); }
