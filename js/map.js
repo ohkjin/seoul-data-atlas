@@ -35,6 +35,15 @@ function mixStops(stops, t) {
 const RAMP_DIVERGING = [[125, 167, 255], [255, 184, 107], [228, 82, 78]];
 // dim/near-invisible (low magnitude) -> amber -> hot orange-red (high magnitude)
 const RAMP_SEQUENTIAL = [[18, 20, 24], [255, 200, 87], [255, 90, 40]];
+// Optional colour THEMES (Layer-Set "color theme"): each supplies a sequential
+// ramp (dim → hue) and a diverging ramp (neg ↔ pos). `setColorScheme` selects one.
+const COLOR_SCHEMES = {
+  default: { seq: RAMP_SEQUENTIAL, div: RAMP_DIVERGING },
+  blue: { seq: [[14, 18, 28], [70, 110, 180], [125, 180, 255]], div: [[125, 167, 255], [70, 74, 92], [255, 150, 90]] },
+  teal: { seq: [[12, 22, 24], [40, 150, 140], [80, 230, 200]], div: [[80, 200, 190], [70, 74, 84], [255, 150, 90]] },
+  viridis: { seq: [[40, 30, 70], [45, 160, 150], [240, 226, 92]], div: [[92, 74, 160], [80, 84, 96], [240, 226, 92]] },
+  magenta: { seq: [[18, 14, 24], [180, 60, 150], [255, 110, 200]], div: [[125, 167, 255], [80, 74, 92], [228, 82, 150]] },
+};
 // Time-flow temperature heatmap: a perceptual weather scale and a display domain
 // focused on the temperatures people need to distinguish. Using the raw annual
 // extremes (about -10–37°C) compressed most days into the blue half of the ramp.
@@ -91,6 +100,7 @@ class AtlasMap3D {
     this.scope = { level: "city", guCode: null, dongCode: null };
     this.layers = { ...DEFAULT_LAYERS };
     this.colorBy = "RHSI_retail";
+    this.colorScheme = null;   // Layer-Set colour theme override (null = built-in ramps)
     this.heightBy = "RHSI_retail";
     // Multivariate "Sector view" over the 6 sales themes: null | rings | radial | columns | dominant.
     this.sectorView = null;
@@ -189,7 +199,13 @@ class AtlasMap3D {
     return Atlas.dongGeometry.filter((d) => d.gu_code === this.scope.guCode);
   }
   _spec(which) { return Atlas.metricSpec(which === "height" ? this.heightBy : this.colorBy); }
-  _rampFor(spec) { return spec && spec.signed ? RAMP_DIVERGING : RAMP_SEQUENTIAL; }
+  _rampFor(spec) {
+    const sch = this.colorScheme && COLOR_SCHEMES[this.colorScheme];
+    if (sch) return spec && spec.signed ? sch.div : sch.seq;
+    return spec && spec.signed ? RAMP_DIVERGING : RAMP_SEQUENTIAL;
+  }
+  // Layer-Set "color theme" — null/"default" = the built-in ramps.
+  setColorScheme(name) { this.colorScheme = (name && name !== "default" && COLOR_SCHEMES[name]) ? name : null; this.render(); }
   // In time mode the data ramp is always the warm sequential (dim→amber→red) so
   // temperature reads as literal heat regardless of the selected static metric.
   _activeRamp(key) { return this.timeMode ? RAMP_SEQUENTIAL : this._rampFor(Atlas.metricSpec(key || this.colorBy)); }

@@ -409,6 +409,8 @@ html, body {
    (No CSS transition here: deck.gl's constant repaint keeps a `left` transition
    stuck mid-flight, so it would pin the toolbar at its start position.) */
 .map-stage.panel-pinned .map-toolbar { left: 268px; }
+/* the Layer-Set editor widens the panel to 320px → push the toolbar clear of it */
+.map-stage.ls-wide.panel-pinned .map-toolbar { left: 352px; }
 .map-toolbar button {
   background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border);
   border-radius: 7px; color: var(--muted); font-size: 11px; font-family: var(--font-ui);
@@ -1217,3 +1219,121 @@ html, body {
 .uhus-r-output strong { display: block; color: var(--text); font-size: 11px; margin-bottom: 4px; }
 .uhus-r-output span { display: block; color: var(--muted); font-size: 9.2px; line-height: 1.35; }
 .uhus-r-output .tag { margin-top: 7px; height: 16px; display: inline-flex; align-items: center; padding: 0 6px; border-radius: 3px; border: 1px solid rgba(255,184,107,0.16); background: rgba(255,184,107,0.04); color: rgba(255,184,107,0.7); font-size: 8px; text-transform: uppercase; font-family: var(--font-mono); }
+
+/* ── Layer-Set panel (right rail; Sales + RHSI) ─────────────────────────────
+   Semantic Structure → Representation → Variable control that replaces the
+   color/height dropdowns for datasets whose engine can express the taxonomy. */
+#layerset-panel[hidden] { display: none; }
+.ls-inner { display: flex; flex-direction: column; gap: 7px; }
+.ls-row-l { font-size: 9px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.ls-fam { display: flex; flex-direction: column; gap: 3px; }
+.ls-fam-l { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); opacity: 0.8; }
+.ls-seg { display: flex; gap: 4px; }
+.ls-seg-wrap { flex-wrap: wrap; }
+.ls-b { flex: 1; min-width: 52px; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 7px;
+  color: var(--muted); padding: 6px 3px 5px; cursor: pointer; transition: all .15s ease; font-family: var(--font-ui); }
+.ls-b i { font-style: normal; font-size: 13px; line-height: 1; }
+.ls-b span { font-size: 8.5px; letter-spacing: 0.02em; }
+.ls-b:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.ls-b.on { color: #fff; border-color: rgba(125,167,255,0.6); background: rgba(125,167,255,0.16); box-shadow: 0 0 14px rgba(125,167,255,0.22); }
+.ls-b.ls-dis { opacity: 0.4; cursor: not-allowed; }
+.ls-b.ls-dis:hover { color: var(--muted); border-color: var(--panel-border); }
+.ls-select { width: 100%; background: rgba(255,255,255,0.03); color: var(--text); border: 1px solid var(--panel-border);
+  border-radius: 6px; padding: 6px 7px; font-size: 12px; font-family: var(--font-ui); }
+.ls-select:hover { border-color: rgba(255,255,255,0.2); }
+.ls-hint { font-size: 10px; color: var(--muted); line-height: 1.45; margin-top: 3px; }
+.ls-hint-warn { color: rgba(255,184,107,0.75); }
+
+/* wider map-control while the Layer-Set editor is mounted (default 236px is cramped) */
+.map-stage.ls-wide #map-control { width: 320px; }
+
+/* paged full editor (map panel): preset pager + page card (prototype3 kepler-toned look) */
+.ls-pager { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.ls-tab { position: relative; font-size: 11px; font-weight: 600; padding: 6px 10px; border-radius: 7px; border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,0.03); color: var(--muted); cursor: pointer; font-family: var(--font-ui); transition: all .15s ease; }
+.ls-tab:hover { color: var(--text); border-color: rgba(255,255,255,0.18); }
+.ls-tab.on { color: #fff; border-color: rgba(125,167,255,0.6); background: rgba(125,167,255,0.16); box-shadow: 0 0 14px rgba(125,167,255,0.22); }
+.ls-tab.ls-dis { opacity: 0.4; cursor: not-allowed; }
+.ls-tab-saved { padding-right: 20px; }
+.ls-tabx { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); font-size: 12px; opacity: 0.6; padding: 0 2px; }
+.ls-tabx:hover { opacity: 1; color: var(--magenta, #E45C91); }
+/* page card */
+.ls-card { border: 1px solid rgba(125,167,255,0.28); background: rgba(125,167,255,0.05); border-radius: 10px; overflow: hidden; }
+.ls-card-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--panel-border); }
+.ls-card-body { display: flex; flex-direction: column; gap: 8px; padding: 9px 10px 11px; }
+.ls-headsp { flex: 1; }
+/* #1 structure badge + preset/custom tag + group note */
+.ls-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 8.5px; font-family: var(--font-mono); text-transform: uppercase;
+  letter-spacing: 0.05em; padding: 3px 8px; border-radius: 5px; }
+.ls-badge i { font-style: normal; font-size: 10px; }
+.ls-badge.s-single { background: rgba(125,167,255,0.14); color: #9fb0cf; }
+.ls-badge.s-total { background: rgba(120,200,160,0.12); color: #9dbbad; }
+.ls-badge.s-across { background: rgba(255,184,107,0.13); color: #c6ac8c; }
+.ls-badge.s-within { background: rgba(168,130,220,0.14); color: #b7a7d0; }
+.ls-badge.s-comparison { background: rgba(200,140,165,0.14); color: #b79aa7; }
+.ls-gnote { font-size: 10px; color: var(--muted); }
+.ls-tag { font-size: 8px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em;
+  border: 1px solid var(--panel-border); border-radius: 4px; padding: 1px 5px; color: var(--muted); }
+/* #1 read-as label */
+.ls-readas { font-size: 11px; color: var(--muted); border-top: 1px dashed var(--panel-border); padding-top: 6px; }
+.ls-readas b { color: var(--cold-blue); text-transform: capitalize; }
+.ls-i { margin-left: 3px; cursor: help; opacity: 0.65; }
+/* #3 appearance section */
+.ls-app { display: flex; flex-direction: column; gap: 7px; }
+.ls-arow { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--text); }
+.ls-arow > span:first-child { min-width: 62px; color: var(--muted); }
+.ls-mini { flex: 1; height: 16px; accent-color: var(--cold-blue); cursor: pointer; }
+.ls-arow input[type=checkbox] { accent-color: var(--cold-blue); }
+.ls-apsp { flex: 1; }
+.ls-swrow { display: flex; gap: 5px; flex: 1; }
+.ls-swrow .ls-sw { flex: 1; min-width: 0; }
+.ls-scaleseg { flex: 1; }
+.ls-b3 { flex: 1; font-size: 9.5px; padding: 4px 3px; border-radius: 6px; border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,0.03); color: var(--muted); cursor: pointer; font-family: var(--font-ui); }
+.ls-b3.on { color: #fff; border-color: rgba(125,167,255,0.55); background: rgba(125,167,255,0.14); }
+.ls-dim { opacity: 0.5; }
+.ls-coming { font-size: 8px; font-family: var(--font-mono); color: #c6ac8c; border: 1px solid rgba(198,172,140,0.3); border-radius: 4px; padding: 0 4px; flex: none; }
+
+/* Single = group of variable-layers (composite) */
+.ls-layers { display: flex; flex-direction: column; gap: 6px; }
+.ls-layer { display: flex; align-items: center; gap: 6px; }
+.ls-lchan { flex: none; }
+.ls-b2 { width: 26px; height: 28px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 6px; color: var(--muted); cursor: pointer; }
+.ls-b2 i { font-style: normal; font-size: 12px; }
+.ls-b2:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.ls-b2.on { color: #fff; border-color: rgba(125,167,255,0.6); background: rgba(125,167,255,0.16); box-shadow: 0 0 12px rgba(125,167,255,0.2); }
+.ls-lvar { flex: 1; min-width: 0; }
+.ls-lx { flex: none; width: 24px; height: 28px; border-radius: 6px; border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,0.03); color: var(--muted); cursor: pointer; font-size: 14px; }
+.ls-lx:hover:not(:disabled) { color: var(--magenta, #E45C91); border-color: rgba(228,92,145,0.5); }
+.ls-lx:disabled { opacity: 0.3; cursor: default; }
+.ls-addlayer { align-self: flex-start; background: none; border: 1px dashed var(--panel-border); color: var(--muted);
+  font-size: 11px; padding: 5px 10px; border-radius: 7px; cursor: pointer; margin-top: 2px; }
+.ls-addlayer:hover { color: var(--text); border-color: rgba(255,255,255,0.25); }
+.ls-sw { flex: 1; min-width: 34px; height: 20px; border-radius: 6px; border: 1px solid var(--panel-border); cursor: pointer; padding: 0; }
+.ls-sw:hover { border-color: rgba(255,255,255,0.35); }
+.ls-sw.on { border-color: var(--cold-blue); box-shadow: 0 0 0 1px var(--cold-blue); }
+.ls-actions { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--panel-border); }
+.ls-act { flex: 1; font-size: 11px; padding: 7px; border-radius: 7px; border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; font-family: var(--font-ui); }
+.ls-act:hover { border-color: var(--cold-blue); color: #fff; }
+
+/* Save-as modal + toast (shared look with the map-control) */
+.ls-modal-ov { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+  background: rgba(6,9,14,0.6); backdrop-filter: blur(4px); }
+.ls-modal { width: 300px; max-width: 86vw; background: linear-gradient(180deg, rgba(18,23,34,0.98), rgba(11,15,24,0.98));
+  border: 1px solid var(--panel-border); border-radius: 12px; padding: 16px; }
+.ls-modal-t { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 11px; }
+.ls-modal-in { width: 100%; background: rgba(255,255,255,0.04); color: var(--text); border: 1px solid var(--panel-border);
+  border-radius: 7px; padding: 9px 10px; font-size: 13px; font-family: var(--font-ui); }
+.ls-modal-in:focus { outline: none; border-color: var(--cold-blue); }
+.ls-modal-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 13px; }
+.ls-modal-btns button { border-radius: 7px; padding: 7px 14px; font-size: 12px; cursor: pointer; border: 1px solid var(--panel-border); }
+.ls-modal-cancel { background: rgba(255,255,255,0.04); color: var(--muted); }
+.ls-modal-ok { background: rgba(125,167,255,0.18); color: #fff; border-color: rgba(125,167,255,0.5); }
+.ls-toast { position: fixed; left: 50%; bottom: 40px; transform: translate(-50%, 12px); z-index: 210;
+  background: rgba(125,167,255,0.16); border: 1px solid rgba(125,167,255,0.5); color: #eaf0ff;
+  font-size: 12px; padding: 9px 16px; border-radius: 9px; opacity: 0; transition: opacity .25s ease, transform .25s ease; pointer-events: none; }
+.ls-toast.show { opacity: 1; transform: translate(-50%, 0); }

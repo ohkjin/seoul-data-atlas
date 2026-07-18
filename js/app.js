@@ -1116,6 +1116,7 @@ function refreshVariableDropdowns() {
     s.innerHTML = `<option value="">— ${placeholder} —</option>` + mapHTML;
     s.value = mapMetrics.some((m) => m.key === cur) ? cur : "";
   });
+  if (typeof LayerSetPanel !== "undefined") LayerSetPanel.sync(); // semantic panel for Sales/RHSI (hides the dropdowns above for those)
   if (typeof Insights !== "undefined") Insights.scheduleRender();
   if (typeof syncTimeline === "function") syncTimeline(); // dataset gating for the time-series
 }

@@ -71,7 +71,10 @@
           <div class="panel-head"><div class="panel-name" id="panel-name">MAP PANEL</div><div class="panel-state" id="panel-state">HOVER</div></div>
           <div id="mc-nav-content"></div>
           <div id="mc-map-content">
-          <div class="mc-title">REPRESENTATION</div>
+          <!-- Semantic Layer-Set editor (Sales + RHSI); replaces the plain Representation seg for those datasets -->
+          <div class="mc-title" id="mc-ls-title" hidden>LAYER SET</div>
+          <div id="mc-layerset" hidden></div>
+          <div class="mc-title" id="mc-rep-title">REPRESENTATION</div>
           <div class="seg" id="mc-representation"></div>
           <div class="shap-feature-filter" id="shap-feature-filter" hidden></div>
           <div class="mc-title">MAP MODE</div>
@@ -152,12 +155,14 @@
 
         <!-- dropdown box (gu + dong + variables), left of the right panel, under the spatial box (same width and style) -->
         <div class="dropdown-box" id="dropdown-box">
-          <div class="sb-title">SELECT</div>
-	        <div class="sb-group">
+          <div class="sb-title" id="dd-title">SELECT</div>
+          <!-- Semantic Layer-Set control (Sales + RHSI); hidden for other datasets -->
+          <div id="layerset-panel" hidden></div>
+	        <div class="sb-group" id="dd-color-group">
             <label>Color by Variable</label>
             <select id="dd-color"><option value="">— color by —</option></select>
           </div>
-          <div class="sb-group">
+          <div class="sb-group" id="dd-height-group">
             <label>Height by Variable</label>
             <select id="dd-height"><option value="">— height by —</option></select>
           </div>
@@ -285,7 +290,7 @@
 <script>
   // Load local scripts with a cache-buster so edits always show on reload. document.write
   // keeps them in order and runs them after the CDN libraries above (classic scripts).
-  ['js/data.js', 'js/map.js', 'js/charts.js', 'js/timeline.js', 'js/panels.js', 'js/app.js']
+  ['js/data.js', 'js/map.js', 'js/charts.js', 'js/timeline.js', 'js/panels.js', 'js/layerset/panel.js', 'js/app.js']
     .forEach(function (s) { document.write('<script src="' + s + '?v=' + window.__cb + '"><\/script>'); });
 </script>
 </body>
