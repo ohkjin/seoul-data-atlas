@@ -126,7 +126,20 @@
     _saved: null,  // { dsId: [ {id,name,page,rep,measure,scheme,layers} ] }
     _uid: 0,
 
-    isSemantic(dsId) { return !!LS_DATASETS[dsId]; },
+    // Any dataset without an explicit config gets a generated one (its DATASET_REPS +
+    // its meta map key), so no dataset can ever fall through to a legacy control path.
+    _autoCfg: {},
+    _cfg(dsId) {
+      if (!dsId) return null;
+      if (LS_DATASETS[dsId]) return LS_DATASETS[dsId];
+      if (this._autoCfg[dsId]) return this._autoCfg[dsId];
+      if (typeof DATASETS_META === "undefined" || !DATASETS_META[dsId]) return null;
+      const reps = (typeof DATASET_REPS !== "undefined" && DATASET_REPS[dsId]) || ["choropleth"];
+      const mk = (DATASETS_META[dsId].map || {}).key || null;
+      return (this._autoCfg[dsId] = { pages: [{ key: "single", label: "Single", icon: "▪", supported: true,
+        reps: reps, measures: mk ? "autoKey:" + mk : null, hint: "Default view for this dataset." }] });
+    },
+    isSemantic(dsId) { return !!this._cfg(dsId); },
 
     sync() {
       const dsId = (typeof Panels !== "undefined") ? Panels.selectedDatasetId : null;
@@ -164,7 +177,7 @@
         colorScale: "quantile", outline: 0 };
       if (!this._grp[dsId]) {   // one group per group-page (glyph pages start with no extra layers)
         const g = {};
-        (LS_DATASETS[dsId].pages || []).forEach((p) => {
+        (this._cfg(dsId).pages || []).forEach((p) => {
           if (!p.group) return;
           g[p.key] = p.glyph ? { rep: (p.reps && p.reps[0]) || "rings", layers: [] } : { layers: [this._newLayer(dsId, "color", 0)] };
         });
@@ -176,7 +189,7 @@
 
     // ---- FULL paged editor (map panel) ----
     renderFull(dsId, host) {
-      const cfg = LS_DATASETS[dsId];
+      const cfg = this._cfg(dsId);
       const saved = this._savedFor(dsId);
       const activeKey = this._page[dsId];
       const active = this._pageByKey(dsId, activeKey);
@@ -259,7 +272,7 @@
 
     // ---- COMPACT (right rail): pick a PRESET (Single / Total / … + saved) + variable ----
     renderCompact(dsId, host) {
-      const cfg = LS_DATASETS[dsId];
+      const cfg = this._cfg(dsId);
       const activeKey = this._page[dsId];
       const active = this._pageByKey(dsId, activeKey);
       const builtins = cfg.pages.map((p) =>
@@ -384,7 +397,7 @@
     // (rt.time for heatfield/compare, or the sales daily-choropleth sequence).
     _applyTime(dsId) {
       if (typeof Panels === "undefined" || typeof map === "undefined" || !map) { this.sync(); return; }
-      Panels.applyRepresentation(dsId, (LS_DATASETS[dsId] || {}).timeRep || "heatfield");
+      Panels.applyRepresentation(dsId, (this._cfg(dsId) || {}).timeRep || "heatfield");
       this._applyAppearance(dsId);
       map.render(); this._afterApply();
     },
@@ -397,7 +410,7 @@
     // Single = variable-layers composited on data channels (no sector glyph).
     _applySingle(dsId) {
       if (typeof Panels === "undefined" || typeof map === "undefined" || !map) { this.sync(); return; }
-      const baseRep = (LS_DATASETS[dsId] && LS_DATASETS[dsId].baseRep) || "choropleth";
+      const baseRep = (this._cfg(dsId) && this._cfg(dsId).baseRep) || "choropleth";
       Panels.applyRepresentation(dsId, baseRep);
       if (typeof exitTimeMode === "function") exitTimeMode();
       map.layerVar = {}; map.layerHeightVar = {};
@@ -502,6 +515,12 @@
       }
       if (kind === "rhsiOnly") { return [{ key: "RHSI_retail", label: "RHSI (heat sensitivity)" }]; }
       if (kind === "salesTotal") { return [{ key: "sales_total", label: "Total sales (₩)" }]; }
+      // generated config: a single metric taken from the dataset's meta map key
+      if (typeof kind === "string" && kind.indexOf("autoKey:") === 0) {
+        const k = kind.slice(8);
+        const spec = (typeof Atlas !== "undefined" && Atlas.metricSpec) ? Atlas.metricSpec(k) : null;
+        return [{ key: k, label: (spec && spec.label) || k }];
+      }
       // day counts behind RHSI — the static (non-animated) view for Weather / Heat-Day Summary
       if (kind === "weatherVars") { return [{ key: "n_hot_days", label: "Extreme-heat days" }, { key: "n_mild_days", label: "Mild days" }]; }
       if (kind === "mobilityVars") { return [{ key: "delta_daypop", label: "Δ Daypop (hot vs mild)" }, { key: "dnpr", label: "Day/Night Pop Ratio" }]; }
@@ -521,9 +540,9 @@
       return [];
     },
     // measures kind used by this dataset's group variable-layers
-    _groupMeasures(dsId) { return (LS_DATASETS[dsId] && LS_DATASETS[dsId].groupMeasures) || "salesGroups"; },
+    _groupMeasures(dsId) { return (this._cfg(dsId) && this._cfg(dsId).groupMeasures) || "salesGroups"; },
     _validMeasure(key, kind) { return this._measures(kind).some((m) => m.key === key) ? key : null; },
-    _builtin(dsId, key) { return LS_DATASETS[dsId].pages.find((p) => p.key === key); },
+    _builtin(dsId, key) { return this._cfg(dsId).pages.find((p) => p.key === key); },
     _savedFor(dsId) { return (this._saved && this._saved[dsId]) || []; },
     _savedById(dsId, id) { return this._savedFor(dsId).find((s) => s.id === id); },
     // resolve a page key (built-in or "saved:<id>") → a page-like object
@@ -539,12 +558,12 @@
     },
     // first page a dataset can actually show (not every dataset has a "single" page)
     _firstPage(dsId) {
-      const pages = (LS_DATASETS[dsId] && LS_DATASETS[dsId].pages) || [];
+      const pages = (this._cfg(dsId) && this._cfg(dsId).pages) || [];
       return pages.find((p) => p.supported !== false) || pages[0] || null;
     },
     _inferPage(dsId) {
       const sv = (typeof map !== "undefined" && map) ? map.sectorView : null;
-      const glyphPage = (LS_DATASETS[dsId].pages || []).find((p) => p.glyph);
+      const glyphPage = (this._cfg(dsId).pages || []).find((p) => p.glyph);
       if (glyphPage && sv && (glyphPage.reps || []).includes(sv)) return glyphPage.key;
       const first = this._firstPage(dsId);
       return first ? first.key : "single";
