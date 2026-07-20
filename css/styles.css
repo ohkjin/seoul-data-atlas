@@ -213,8 +213,26 @@ html, body {
   min-height: 0;
 }
 @media (max-width: 1560px) { .analysis-grid { grid-template-columns: minmax(300px, 1fr) 720px; } }
-/* too narrow for side-by-side → fall back to a single narrow panel (Insights stacks under Detail) */
+/* too narrow for side-by-side → fall back to a single narrow panel (panels stack) */
 @media (max-width: 1180px) { .analysis-grid { grid-template-columns: minmax(280px, 1fr) 424px; } }
+/* The right column follows how many panels are open — closing them all leaves just the
+   48px rail so the map takes the width. Declared last so it beats the queries above. */
+.analysis-grid.pcount-0 { grid-template-columns: minmax(320px, 1fr) 69px; }
+.analysis-grid.pcount-1 { grid-template-columns: minmax(320px, 1fr) 436px; }
+.analysis-grid.pcount-2 { grid-template-columns: minmax(320px, 1fr) 772px; }
+.analysis-grid.pcount-3 { grid-template-columns: minmax(320px, 1fr) 1090px; }
+@media (max-width: 1560px) {
+  .analysis-grid.pcount-1 { grid-template-columns: minmax(300px, 1fr) 412px; }
+  .analysis-grid.pcount-2 { grid-template-columns: minmax(300px, 1fr) 720px; }
+  .analysis-grid.pcount-3 { grid-template-columns: minmax(300px, 1fr) 980px; }
+}
+/* stacked below this width, so one column regardless of how many are open */
+@media (max-width: 1180px) {
+  .analysis-grid.pcount-1,
+  .analysis-grid.pcount-2,
+  .analysis-grid.pcount-3 { grid-template-columns: minmax(280px, 1fr) 424px; }
+  .analysis-grid.pcount-0 { grid-template-columns: minmax(280px, 1fr) 69px; }
+}
 .panel-cell {
   background: var(--deep-surface);
   display: flex; flex-direction: column;
@@ -951,19 +969,23 @@ html, body {
 .rail-tab.active svg { color: var(--amber); }
 .uhus-tab-badge { position: absolute; top: 4px; right: 4px; min-width: 14px; height: 14px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid rgba(255,184,107,0.2); background: rgba(255,184,107,0.06); color: var(--amber); font-family: var(--font-mono); font-size: 7.5px; }
 
-.panel-content { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.panel-content > section { flex: 1 1 auto; min-height: 0; min-width: 0; display: none; flex-direction: column; }
-.panel-host.mode-detail .panel-wrap,
-.panel-host.mode-detail .insights-view,
-.panel-host.mode-insights .insights-view,
-.panel-host.mode-library .library-view { display: flex; }
-/* Detail shows Insights (left) beside Detail (right) — both full-height, neither squeezed. */
-.panel-host.mode-detail .panel-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 9px; }
-.panel-host.mode-detail .insights-view { order: -1; min-height: 0; }
-/* narrow screens: stack Insights under Detail instead */
+/* The rail tabs are independent toggles, so any combination of panels can be open and
+   whichever are open share the width. Closing them all collapses the column. */
+.panel-content { min-width: 0; min-height: 0; display: flex; flex-direction: row; gap: 9px; }
+.panel-content > section { flex: 1 1 0; min-height: 0; min-width: 0; display: none; flex-direction: column; }
+.panel-host.open-detail .panel-wrap,
+.panel-host.open-insights .insights-view,
+.panel-host.open-library .library-view { display: flex; }
+/* fixed left-to-right order regardless of which are open: Insights · Detail · Library */
+.panel-host .insights-view { order: 1; }
+.panel-host .panel-wrap { order: 2; }
+.panel-host .library-view { order: 3; }
+/* nothing open → hide the content and leave just the rail */
+.panel-host.panels-empty .panel-content { display: none; }
+/* narrow screens: stack the open panels vertically instead of side by side */
 @media (max-width: 1180px) {
-  .panel-host.mode-detail .panel-content { display: flex; }
-  .panel-host.mode-detail .insights-view { order: 0; flex: 0 0 auto; max-height: 46%; }
+  .panel-content { flex-direction: column; }
+  .panel-content > section { flex: 1 1 auto; }
 }
 
 /* left-rail spine: collapsed stage ticks that expand into a dataset list on hover */

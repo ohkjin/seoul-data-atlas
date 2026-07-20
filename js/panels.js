@@ -333,20 +333,45 @@ const Panels = {
       t.addEventListener("click", () => this.setTab(t.dataset.panelTab));
     });
     this.renderSpine();
+    this.applyPanelLayout();   // Detail + Insights open by default
     // Open on the UHUS project detail (Detail + Insights side by side).
     this.renderProject();
   },
 
-  // Switch the right-panel view via the left rail. Insights renders its charts
-  // only while visible, so (re)render when it becomes the active tab.
+  // The rail tabs are independent toggles: each opens/closes its own panel and any
+  // that are open stack side by side. Closing them all collapses the whole column so
+  // the map takes the space. Detail + Insights start open.
+  openPanels: null,
+  _panels() { return (this.openPanels = this.openPanels || new Set(["detail", "insights"])); },
+
+  // Rail click → toggle. Clicking an already-open tab closes that panel.
   setTab(name) {
     if (!name) return;
-    document.querySelectorAll(".rail-tab").forEach((x) => x.classList.toggle("active", x.dataset.panelTab === name));
-    this.host.classList.remove("mode-detail", "mode-insights", "mode-library");
-    this.host.classList.add("mode-" + name);
-    // Detail now shows the Insights panel alongside it, so render insights there too.
-    if ((name === "insights" || name === "detail") && typeof Insights !== "undefined") Insights.render();
-    if (name === "library") this.renderLibraryView();
+    const open = this._panels();
+    if (open.has(name)) open.delete(name); else open.add(name);
+    this.applyPanelLayout();
+  },
+  // Programmatic "make sure this is showing" (never closes) — used when navigating to
+  // a dataset/project, where toggling would be wrong.
+  openTab(name) {
+    if (!name) return;
+    this._panels().add(name);
+    this.applyPanelLayout();
+  },
+  applyPanelLayout() {
+    const open = this._panels();
+    document.querySelectorAll(".rail-tab").forEach((t) => t.classList.toggle("active", open.has(t.dataset.panelTab)));
+    ["detail", "insights", "library"].forEach((n) => this.host.classList.toggle("open-" + n, open.has(n)));
+    this.host.classList.toggle("panels-empty", open.size === 0);
+    // the surrounding grid widens/collapses with the number of open panels
+    const grid = document.querySelector(".analysis-grid");
+    if (grid) {
+      [0, 1, 2, 3].forEach((n) => grid.classList.remove("pcount-" + n));
+      grid.classList.add("pcount-" + Math.min(3, open.size));
+    }
+    // Insights only draws while visible, so (re)render when it is showing.
+    if (open.has("insights") && typeof Insights !== "undefined") Insights.render();
+    if (open.has("library")) this.renderLibraryView();
   },
 
   // Left-rail spine: collapsed stage ticks + a hover dataset list (quick nav).
@@ -589,7 +614,7 @@ const Panels = {
 
   // ---------- Project Detail ----------
   renderProject() {
-    this.setTab("detail");
+    this.openTab("detail");
     this.label.textContent = "Project Detail";
     this.modeLabel.textContent = "Project Group Panel";
     this.modeStrong.textContent = "Dataset Catalog";
@@ -732,7 +757,7 @@ const Panels = {
   renderDatasetDetail(id) {
     const d = DATASETS_META[id];
     if (!d) return;
-    this.setTab("detail");
+    this.openTab("detail");
     this.currentDatasetForBack = id;
     // The variable dropdowns scope to the dataset currently open in the detail.
     this.selectedDatasetId = id;
