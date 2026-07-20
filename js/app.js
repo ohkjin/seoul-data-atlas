@@ -567,6 +567,10 @@ function initControlPanel() {
       if (on && OSM_LAYERS.has(layer)) {
         Atlas.ensureOSM(layer).then(() => { map._staticCache = null; map.render(); updateLegend(); });
       }
+      // buildings.json is large and lazy — fetch it the first time the layer is switched on
+      if (on && layer === "buildings" && typeof Atlas.ensureBuildings === "function") {
+        Atlas.ensureBuildings().then(() => { map._bldgCache = null; map._staticCache = null; map.render(); updateLegend(); });
+      }
       updateLegend();
     });
   });

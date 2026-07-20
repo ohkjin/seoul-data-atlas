@@ -128,7 +128,7 @@ const Atlas = {
 
   async load() {
     const base = "data/";
-    const [guGeo, dongGeo, meta, dongM, guM, sales, catalog, indStats, ts, dongPts, roads, buildings, groupDaily, dongGroupDaily] = await Promise.all([
+    const [guGeo, dongGeo, meta, dongM, guM, sales, catalog, indStats, ts, dongPts, roads, groupDaily, dongGroupDaily] = await Promise.all([
       fetch(base + "gu_geometry.json").then((r) => r.json()),
       fetch(base + "dong_geometry.json").then((r) => r.json()),
       fetch(base + "meta.json").then((r) => r.json()),
@@ -139,17 +139,17 @@ const Atlas = {
       fetch(base + "industry_stats.json").then((r) => r.json()),
       fetch(base + "gu_daily_timeseries.json").then((r) => r.json()),
       fetch(base + "dong_points.json").then((r) => r.json()),
-      // roads is committed; buildings.json is gitignored (regenerate via fetch script) —
-      // both tolerate a missing file so a fresh clone still boots (buildings just don't render).
+      // roads is committed and tolerates a missing file so a fresh clone still boots.
+      // buildings.json is NOT loaded here — it is ~61MB, renders only when a gu/dong is
+      // selected, and is off by default, so it is fetched lazily via ensureBuildings().
       fetch(base + "roads.json").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
-      fetch(base + "buildings.json").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch(base + "gu_group_daily.json").then((r) => r.json()),
       fetch(base + "dong_group_daily.json").then((r) => r.json()),
     ]);
     this.guGeometry = guGeo; this.dongGeometry = dongGeo; this.meta = meta;
     this.dongMetrics = dongM; this.guMetrics = guM;
     this.dongSales = sales; this.industryCatalog = catalog; this.industryStats = indStats; this.guTimeseries = ts;
-    this.dongPointsRaw = dongPts; this.roads = roads; this.buildings = buildings; this.groupDaily = groupDaily;
+    this.dongPointsRaw = dongPts; this.roads = roads; this.groupDaily = groupDaily;
     this.dongGroupDaily = dongGroupDaily;
 
     dongM.forEach((d) => this.dongByCode.set(d.dong_code, d));
@@ -166,6 +166,21 @@ const Atlas = {
   // concurrent toggles share one in-flight request; a missing file resolves to null.
   _osm: {},
   _osmPromises: {},
+  // buildings.json is ~61MB raw (~6.7MB gzipped) and only renders once a gu/dong is
+  // selected, so it is fetched on first use rather than at startup. Deployments that
+  // host it off-repo (e.g. Cloudflare R2, to dodge a per-file size cap and git bloat)
+  // set window.ATLAS_BUILDINGS_URL to the absolute URL; otherwise it comes from data/.
+  buildingsURL() {
+    return (typeof window !== "undefined" && window.ATLAS_BUILDINGS_URL) || "data/buildings.json";
+  },
+  ensureBuildings() {
+    if (this.buildings) return Promise.resolve(this.buildings);
+    if (this._buildingsPromise) return this._buildingsPromise;
+    return (this._buildingsPromise = fetch(this.buildingsURL())
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { this.buildings = d || null; return this.buildings; })
+      .catch(() => { this.buildings = null; return null; }));
+  },
   ensureOSM(name) {
     if (this._osm[name] !== undefined) return Promise.resolve(this._osm[name]);
     if (this._osmPromises[name]) return this._osmPromises[name];

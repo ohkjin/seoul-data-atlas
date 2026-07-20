@@ -15,3 +15,6 @@ venv/
 .claude/
 .DS_Store
 Thumbs.db
+
+# deploy cruft
+data/buildings_fetch_progress.json

@@ -4,13 +4,16 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Seoul Data Atlas</title>
-<!-- Dev: the static file server sends no cache headers, so browsers serve stale
-     JS/CSS. Force a fresh fetch of the LOCAL assets on every load (see the script
-     tags at the bottom). CDN libraries keep their normal caching. -->
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-<meta http-equiv="Pragma" content="no-cache" />
-<meta http-equiv="Expires" content="0" />
-<script>window.__cb = Date.now();</script>
+<!-- Assets are versioned by the ?v= query below, so they can be cached normally.
+     Cache headers for a deploy live in _headers (Cloudflare Pages / Netlify). -->
+<script>
+  // Asset version. Bump on deploy so browsers pick up new JS/CSS; keeping it fixed
+  // (rather than Date.now()) lets them cache between visits. Set ?dev=1 to bust locally.
+  window.__cb = /[?&]dev=1\b/.test(location.search) ? Date.now() : "2026-07-19";
+  // Optional: host the ~61MB buildings.json off-repo (e.g. Cloudflare R2) to avoid a
+  // per-file size cap and git bloat. Leave unset to serve it from data/.
+  // window.ATLAS_BUILDINGS_URL = "https://<your-r2-public-domain>/buildings.json";
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,500;1,400&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" rel="stylesheet" />
