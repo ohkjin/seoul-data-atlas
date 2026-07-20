@@ -1365,3 +1365,7 @@ html, body {
 @keyframes dn-sweep { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
 /* toolbar button while its layer is downloading */
 .map-toolbar button.tb-loading { color: var(--cold-blue); border-color: rgba(125,167,255,0.45); opacity: 0.75; }
+
+/* numeric read-out beside each Appearance slider (curved sliders need a visible value) */
+.ls-aval { flex: none; min-width: 30px; text-align: right; font-family: var(--font-mono);
+  font-size: 9.5px; color: var(--muted); }

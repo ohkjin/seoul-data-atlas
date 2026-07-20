@@ -30,6 +30,14 @@
     { key: "rings", label: "Value rings", icon: "◎", layers: ["influence"] },
   ];
 
+  // Elevation slider curve. Representations tune elevation between ~0.12 and 1.4, and
+  // the low end is where Seoul actually reads, so a linear track is unusable there.
+  // position 0..1 -> value = MAX * position^GAMMA (and back), so ~half the travel
+  // covers 0..0.2 instead of a few pixels.
+  const ELEV_MAX = 1.6, ELEV_GAMMA = 3;
+  const ELEV_VAL = (pos) => +(ELEV_MAX * Math.pow(Math.max(0, Math.min(1, +pos || 0)), ELEV_GAMMA)).toFixed(3);
+  const ELEV_POS = (val) => Math.pow(Math.max(0, Math.min(1, (+val || 0) / ELEV_MAX)), 1 / ELEV_GAMMA).toFixed(4);
+
   // Every design a single variable can take (each maps to a REP_TYPES entry).
   const DESIGN_REPS = ["choropleth", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"];
   // "Compare" = show several variables at once, each on its own design. This is the
@@ -263,7 +271,14 @@
       host.querySelectorAll("[data-ls-theme]").forEach((b) => b.onclick = () => this._applyTheme(dsId, b.dataset.lsTheme));
       // #3 appearance controls
       host.querySelectorAll("[data-ls-ap]").forEach((inp) => {
-        const handler = () => this._setAppear(dsId, inp.dataset.lsAp, inp.type === "checkbox" ? inp.checked : inp.value, inp.type === "range");
+        const handler = () => {
+          let v = inp.type === "checkbox" ? inp.checked : inp.value;
+          if (inp.dataset.curve === "elev") v = ELEV_VAL(inp.value);   // slider rides a curve
+          // slider drags skip the re-render, so refresh this row's read-out directly
+          const out = inp.parentElement && inp.parentElement.querySelector(".ls-aval");
+          if (out && inp.type === "range") out.textContent = (+v).toFixed(inp.dataset.lsAp === "glow" || inp.dataset.lsAp === "outline" ? 1 : 2);
+          this._setAppear(dsId, inp.dataset.lsAp, v, inp.type === "range");
+        };
         if (inp.type === "range") inp.oninput = handler; else inp.onchange = handler;
       });
       host.querySelectorAll("[data-ls-scale]").forEach((b) => b.onclick = () => this._setAppear(dsId, "colorScale", b.dataset.lsScale, false));
@@ -503,14 +518,21 @@
       const a = this._appear[dsId];
       const themes = THEMES.map((t) => `<button class="ls-sw${a.scheme === t.key ? " on" : ""}" data-ls-theme="${t.key}" title="${t.label}" style="background:${t.grad}"></button>`).join("");
       const scales = ["linear", "quantize", "quantile"].map((s) => `<button class="ls-b3${a.colorScale === s ? " on" : ""}" data-ls-scale="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</button>`).join("");
+      // Elevation's useful values sit near 0.1–0.3 (Seoul is shallow at this scale), so a
+      // linear track puts all the usable travel in a sliver at the far left. It rides a
+      // curve instead: the slider position is 0..1 and value = max * pos^GAMMA, giving
+      // fine control low down and coarse control up top.
+      const el = `<input type="range" class="ls-mini" data-ls-ap="elevation" data-curve="elev"
+        min="0" max="1" step="0.004" value="${ELEV_POS(a.elevation)}">`;
+      const row = (label, input, val) => `<label class="ls-arow"><span>${label}</span>${input}<b class="ls-aval">${val}</b></label>`;
       return `<div class="ls-row-l">Appearance</div><div class="ls-app">
         <div class="ls-arow"><span>Color theme</span><div class="ls-swrow">${themes}</div></div>
-        <label class="ls-arow"><span>Elevation</span><input type="range" class="ls-mini" data-ls-ap="elevation" min="0" max="1.5" step="0.02" value="${a.elevation}"></label>
-        <label class="ls-arow"><span>Radius</span><input type="range" class="ls-mini" data-ls-ap="radius" min="0.3" max="3" step="0.1" value="${a.radius}"></label>
-        <label class="ls-arow"><span>Opacity</span><input type="range" class="ls-mini" data-ls-ap="opacity" min="0.2" max="1" step="0.05" value="${a.opacity}"></label>
-        <label class="ls-arow"><span>Glow</span><input type="range" class="ls-mini" data-ls-ap="glow" min="0" max="2" step="0.1" value="${a.glow}"></label>
+        ${row("Elevation", el, (+a.elevation).toFixed(2))}
+        ${row("Radius", `<input type="range" class="ls-mini" data-ls-ap="radius" min="0.3" max="3" step="0.05" value="${a.radius}">`, (+a.radius).toFixed(2))}
+        ${row("Opacity", `<input type="range" class="ls-mini" data-ls-ap="opacity" min="0.2" max="1" step="0.05" value="${a.opacity}">`, (+a.opacity).toFixed(2))}
+        ${row("Glow", `<input type="range" class="ls-mini" data-ls-ap="glow" min="0" max="2" step="0.1" value="${a.glow}">`, (+a.glow).toFixed(1))}
         <div class="ls-arow"><span>Color scale</span><div class="ls-seg ls-scaleseg">${scales}</div></div>
-        <label class="ls-arow"><span>Outline</span><input type="range" class="ls-mini" data-ls-ap="outline" min="0" max="3" step="0.5" value="${a.outline}"></label>
+        ${row("Outline", `<input type="range" class="ls-mini" data-ls-ap="outline" min="0" max="3" step="0.5" value="${a.outline}">`, (+a.outline).toFixed(1))}
       </div>`;
     },
 
