@@ -121,6 +121,7 @@
   const LayerSetPanel = {
     _page: {},     // active page key per dataset (built-in key or "saved:<id>")
     _time: {},     // { dsId: bool } — temporal toggle fallback when the engine can't report
+    _touched: {},  // { dsId: { field: true } } — appearance fields the user actually changed
     _appear: {},   // { dsId: { scheme } }
     _grp: {},      // { dsId: { layers: [ {id, channel, measure} ] } } — the Single group
     _saved: null,  // { dsId: [ {id,name,page,rep,measure,scheme,layers} ] }
@@ -443,18 +444,36 @@
     // scheme + opacity + glow are the appearance controls the real map honors today
     _applyAppearance(dsId) {
       const a = this._appear[dsId]; if (!a || typeof map === "undefined" || !map) return;
+      const t = this._touched[dsId] || {};
+      // These have no per-representation default, so they always apply.
       if (typeof map.setColorScheme === "function") map.setColorScheme(a.scheme);
-      if (a.opacity != null) map.opacity = +a.opacity;
-      if (a.glow != null) map.glow = +a.glow;
-      // re-assert after applyRepresentation, which pushes the representation's own slider values
-      if (a.elevation != null && map.setElevationScale) map.setElevationScale(+a.elevation);
-      if (a.radius != null && map.setRadiusScale) map.setRadiusScale(+a.radius);
       if (a.outline != null && map.setOutlineWidth) map.setOutlineWidth(+a.outline);
       if (a.colorScale && map.setColorScaleMode) map.setColorScaleMode(a.colorScale);
+      // These DO have per-representation defaults (REP_TYPES sliders: a flat map wants
+      // elevation 0.12, columns 1.4). applyRepresentation has just set them, so only
+      // override where the user actually moved the control — otherwise the tuned value
+      // would be replaced by a generic default and e.g. a flat map would render 8x too tall.
+      if (t.opacity && a.opacity != null) map.opacity = +a.opacity;
+      if (t.glow && a.glow != null) map.glow = +a.glow;
+      if (t.elevation && a.elevation != null && map.setElevationScale) map.setElevationScale(+a.elevation);
+      if (t.radius && a.radius != null && map.setRadiusScale) map.setRadiusScale(+a.radius);
+      this._syncAppearFromMap(dsId);
+    },
+    // Pull whatever the map ended up with back into the untouched fields, so the sliders
+    // show the representation's real values instead of stale defaults.
+    _syncAppearFromMap(dsId) {
+      const a = this._appear[dsId], t = this._touched[dsId] || {};
+      if (!a || typeof map === "undefined" || !map) return;
+      if (!t.opacity && map.opacity != null) a.opacity = map.opacity;
+      if (!t.glow && map.glow != null) a.glow = map.glow;
+      if (!t.elevation && map.elevationScale != null) a.elevation = map.elevationScale;
+      if (!t.radius && map.radiusScale != null) a.radius = map.radiusScale;
     },
     _setAppear(dsId, field, val, isSliderLive) {
       const a = this._appear[dsId]; if (!a) return;
       a[field] = field === "label" ? !!val : (field === "colorScale" ? val : +val);
+      // mark it as user-set so it now survives a representation change
+      (this._touched[dsId] = this._touched[dsId] || {})[field] = true;
       if (typeof map !== "undefined" && map) {
         // use the engine's own setters so the map re-renders the same way the old sliders did
         if (field === "opacity") { if (map.setOpacity) map.setOpacity(+val); else { map.opacity = +val; if (map.render) map.render(); } }
@@ -486,7 +505,7 @@
       const scales = ["linear", "quantize", "quantile"].map((s) => `<button class="ls-b3${a.colorScale === s ? " on" : ""}" data-ls-scale="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</button>`).join("");
       return `<div class="ls-row-l">Appearance</div><div class="ls-app">
         <div class="ls-arow"><span>Color theme</span><div class="ls-swrow">${themes}</div></div>
-        <label class="ls-arow"><span>Elevation</span><input type="range" class="ls-mini" data-ls-ap="elevation" min="0" max="3" step="0.1" value="${a.elevation}"></label>
+        <label class="ls-arow"><span>Elevation</span><input type="range" class="ls-mini" data-ls-ap="elevation" min="0" max="1.5" step="0.02" value="${a.elevation}"></label>
         <label class="ls-arow"><span>Radius</span><input type="range" class="ls-mini" data-ls-ap="radius" min="0.3" max="3" step="0.1" value="${a.radius}"></label>
         <label class="ls-arow"><span>Opacity</span><input type="range" class="ls-mini" data-ls-ap="opacity" min="0.2" max="1" step="0.05" value="${a.opacity}"></label>
         <label class="ls-arow"><span>Glow</span><input type="range" class="ls-mini" data-ls-ap="glow" min="0" max="2" step="0.1" value="${a.glow}"></label>
@@ -600,8 +619,10 @@
     _applyPage(dsId, rep, measure) {
       if (typeof Panels === "undefined" || typeof map === "undefined" || !map) { this.sync(); return; }
       const page = this._pageByKey(dsId, this._page[dsId]);
-      this._applyAppearance(dsId);
       Panels.applyRepresentation(dsId, rep || (page.reps && page.reps[0]) || "choropleth");
+      // must run AFTER applyRepresentation: it pushes the representation's tuned sliders,
+      // and _applyAppearance both re-applies user overrides and reads the rest back.
+      this._applyAppearance(dsId);
       const list = this._measures(page.measures);
       if (list.length) map.unifyLayerColors(measure || this._validMeasure(map.colorBy, page.measures) || list[0].key);
       if (typeof updateLegend === "function") updateLegend();
@@ -652,6 +673,7 @@
     _reset(dsId) {
       const activeKey = this._page[dsId];
       this._appear[dsId] = { scheme: "default", opacity: 0.85, glow: 1, elevation: 1, radius: 1, colorScale: "quantile", outline: 0 };
+      this._touched[dsId] = {};   // back to the representation's tuned values
       if (activeKey.indexOf("saved:") === 0) {   // revert edits to the saved preset's stored config
         const s = this._savedById(dsId, activeKey.slice(6));
         if (s) { if (s.appear) this._appear[dsId] = Object.assign(this._appear[dsId], s.appear); else if (s.scheme) this._appear[dsId].scheme = s.scheme; this._selectPage(dsId, activeKey); return; }
