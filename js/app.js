@@ -382,7 +382,7 @@ function timeChannel() {
 function enterTimeMode() {
   const ch = timeChannel();
   if (map) { map.timeCompare = (ch === "both"); map.timeVar = (ch === "sales") ? "sales" : "temp"; }
-  if (!map.isTimeMode()) { map.setTimeMode(true); updateLegend(); }
+  if (!map.isTimeMode()) { map.setTimeMode(true); updateLegend(); if (typeof syncTimeline === "function") syncTimeline(); }
   else if (map) map.render();
 }
 function startPlayback() {
@@ -411,12 +411,13 @@ function pausePlayback() {
   Timeline.setPlaying(false);
   if (timeState._raf) cancelAnimationFrame(timeState._raf);
 }
-function scrubTo(i, reset) {
+// Scrub the map/graph cursor to a day. Never leaves time mode — the rail's Static
+// is the only way out — so the strip's Reset just jumps back to day 0 and pauses.
+function scrubTo(i) {
   enterTimeMode();
   pausePlayback();
   timeState.dayIndex = i;
   applyDay(i);
-  if (reset) exitTimeMode();
 }
 // Leave time-flow and return to the static metric view. Static controls call
 // this so a change applies immediately instead of being swallowed by time mode
@@ -427,8 +428,9 @@ function exitTimeMode() {
   Timeline.setPlaying(false);
   if (Timeline._render) Timeline._render(0);
   const ro = document.getElementById("tl-readout");
-  if (ro) ro.innerHTML = "Press play to sweep 2024 · temperature drives the heat glow";
+  if (ro) ro.innerHTML = "Time-series graph — switch to Animate to sweep the year.";
   updateLegend();
+  if (typeof syncTimeline === "function") syncTimeline();   // hide the transport now we're static
 }
 function applyDay(i) {
   map.setTimeDay(i);
@@ -550,8 +552,7 @@ function initControlPanel() {
     });
   });
 
-  // Toolbar Reset: leave time-flow and return to the static view.
-  document.getElementById("mc-reset").addEventListener("click", () => exitTimeMode());
+  // (Toolbar Reset removed: the rail's Static is the single "leave time" control.)
 
   // Top toolbar: quick base-layer + OSM context toggles.
   const OSM_LAYERS = new Set(["nature", "transit", "amenity"]);
@@ -1027,7 +1028,12 @@ function syncTimeline() {
   const ds = (typeof Panels !== "undefined") ? Panels.selectedDatasetId : null;
   const show = ds === "weather" || ds === "sales";
   const strip = document.getElementById("timeline");
-  if (strip) strip.classList.toggle("hidden", !show);
+  if (strip) {
+    strip.classList.toggle("hidden", !show);
+    // Transport (play/speed/reset) only exists in time mode; in Static the strip still
+    // draws the graph as context. The rail's Static/Animate is the one mode switch.
+    strip.classList.toggle("time-live", show && map.isTimeMode());
+  }
   Timeline.setEnabled(show);
   if (!show) return;
   Timeline.setChannel(timeChannel());

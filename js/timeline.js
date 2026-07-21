@@ -38,7 +38,7 @@ const Timeline = {
       if (this.onToggle) this.onToggle();
     });
     document.getElementById("tl-reset").addEventListener("click", () => {
-      if (this.onScrub) this.onScrub(0, true);
+      if (this.onScrub) this.onScrub(0);   // back to day 0; stays in time mode (rail owns exit)
     });
     document.querySelectorAll("#tl-speeds button").forEach((b) => {
       b.addEventListener("click", () => {

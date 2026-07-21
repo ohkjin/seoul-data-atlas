@@ -309,6 +309,11 @@ html, body {
   background: linear-gradient(180deg, rgba(9,13,22,0.9), rgba(6,9,16,0.94));
 }
 .timeline.hidden { display: none; }
+/* Transport (play/speed/reset) only appears in time mode (.time-live). In Static the
+   strip still shows its graph + readout as context; the rail's Animate is the way in. */
+.timeline:not(.time-live) .tl-play,
+.timeline:not(.time-live) .tl-speeds,
+.timeline:not(.time-live) .tl-reset { display: none; }
 .tl-controls { display: flex; align-items: center; gap: 10px; }
 .tl-play {
   width: 30px; height: 30px; border-radius: 50%; flex: none; cursor: pointer;
