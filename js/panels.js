@@ -251,9 +251,9 @@ const DATASETS_META = {
 // own metric (DATASETS_META[id].map.key). `applyRepresentation` applies one and mirrors
 // it onto every left-panel control.
 const REP_TYPES = {
-  choropleth: { label: "Flat map",     layers: ["roads", "choropleth"], sliders: { elevation: 0.12, radius: 1.0, opacity: 1.0, glow: 1.0 } },
-  bars:       { label: "3D bars",      layers: ["boundary", "roads", "columns"], height: true, sliders: { elevation: 0.12, radius: 1.0, opacity: 0.95, glow: 1.0 } },
-  points:     { label: "Glow points",  layers: ["boundary", "roads", "pointCore", "pointHalo"], sliders: { elevation: 0.12, radius: 1.0, opacity: 0.9, glow: 1.4 } },
+  choropleth: { label: "Flat map",     layers: ["roads", "choropleth", "labels"], sliders: { elevation: 0.12, radius: 1.0, opacity: 1.0, glow: 1.0 } },
+  bars:       { label: "3D bars",      layers: ["boundary", "roads", "columns", "labels"], height: true, sliders: { elevation: 0.12, radius: 1.0, opacity: 0.95, glow: 1.0 } },
+  points:     { label: "Glow points",  layers: ["boundary", "roads", "pointCore", "pointHalo", "labels"], sliders: { elevation: 0.12, radius: 1.0, opacity: 0.9, glow: 1.4 } },
   rings:      { label: "Rings",        layers: ["boundary"], sector: "rings", sliders: { elevation: 1.0, radius: 1.2, opacity: 0.85, glow: 1.3 } },
   radial:     { label: "Radial",       layers: ["boundary"], sector: "radial", sliders: { elevation: 1.0, radius: 1.2, opacity: 0.85, glow: 1.3 } },
   columns:    { label: "Columns",      layers: ["boundary"], sector: "columns", sliders: { elevation: 1.4, radius: 1.1, opacity: 0.85, glow: 1.2 } },

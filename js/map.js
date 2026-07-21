@@ -1119,16 +1119,74 @@ class AtlasMap3D {
   }
 
   // ---------- labels ----------
+  // ArcGIS Scene Viewer-style leader lines: a thin white stem rises from each
+  // region's centroid and the name floats on top (billboard), so it clears the
+  // choropleth fill / bars instead of being buried in them. At a busy grain
+  // (e.g. all 424 dongs) only the selected region + the strongest N are labelled.
+  // Only thin the labels when the grain is genuinely crowded (all ~424 dongs).
+  // Gu (25) and a single gu's dongs (~15) all get labelled.
+  // True when the active representation extrudes regions (choropleth/columns/3D
+  // sectors), so the label stem must clear the bar's top rather than the ground.
+  _isExtruded() {
+    return !!(this.layers.choropleth || this.layers.columns
+      || ["columns", "signedcols", "radial", "buildingmix"].includes(this.sectorView));
+  }
+  // Each label sits on its own bar. The stem height uses the SAME linear
+  // |value|/hMax normalisation the bars use (map.js choropleth/columns getElevation),
+  // so a label never detaches and floats alone above a short bar. Flat reps get a
+  // small constant lift so the name reads clear of the fill.
+  _MAX_LABELS = 22;
+  _labelRegions() {
+    const rows = this._regionData().filter((d) => d && d.position && d.name);
+    const extruded = this._isExtruded();
+    const EXT = this._grain() === "dong" ? 55000 : 90000;
+    let hMax = 0;
+    for (const d of rows) hMax = Math.max(hMax, Math.abs(d.heightValue || 0));
+    hMax = hMax || 1;
+    for (const d of rows) {
+      const ratio = Math.abs(d.heightValue || 0) / hMax;
+      d._stemTop = (extruded ? ratio * EXT * this.elevationScale : 0) + 1200 + ratio * 700;
+    }
+    if (rows.length <= 40) return rows;
+    // Crowded grain (all ~424 dongs): keep the selected region, then the strongest N.
+    const sel = this.selectedDongCode;
+    const ranked = [...rows].sort((a, b) => (b.magT || 0) - (a.magT || 0));
+    const keep = new Set(ranked.slice(0, this._MAX_LABELS));
+    const picked = rows.find((d) => d.code === sel);
+    if (picked) keep.add(picked);
+    return rows.filter((d) => keep.has(d));
+  }
+  _labelStemTop(d) { return d._stemTop != null ? d._stemTop : 1200; }
   _labelsLayer() {
-    return new deck.TextLayer({
-      id: "labels", data: this._regionData(), pickable: false,
-      getPosition: (d) => d.position, getText: (d) => d.name,
-      getSize: this.scope.level === "city" ? 13 : 11, sizeUnits: "pixels",
-      getColor: [222, 232, 245, 220], fontFamily: "Inter, sans-serif", fontWeight: 600,
-      getTextAnchor: "middle", getAlignmentBaseline: "center",
-      outlineWidth: 2, outlineColor: [5, 7, 11, 220], fontSettings: { sdf: true },
-      updateTriggers: { getText: [this._sig()], getSize: [this.scope.level] },
+    const data = this._labelRegions();
+    const glow = Math.min(1.4, this.glow);
+    const stems = new deck.LineLayer({
+      id: "label-stems", data, pickable: false,
+      getSourcePosition: (d) => [d.position[0], d.position[1], 0],
+      getTargetPosition: (d) => [d.position[0], d.position[1], this._labelStemTop(d)],
+      getColor: [226, 236, 250, Math.round(150 * glow)],
+      widthUnits: "pixels", getWidth: 1.2, parameters: ADDITIVE,
+      updateTriggers: { getSourcePosition: [this._sig()], getTargetPosition: [this._sig(), this.elevationScale], getColor: [this.glow] },
     });
+    const dots = new deck.ScatterplotLayer({
+      id: "label-anchors", data, pickable: false,
+      getPosition: (d) => [d.position[0], d.position[1], this._labelStemTop(d)],
+      radiusUnits: "pixels", getRadius: 1.8, getFillColor: [236, 244, 255, Math.round(220 * glow)],
+      parameters: ADDITIVE, billboard: true,
+      updateTriggers: { getPosition: [this._sig(), this.elevationScale], getFillColor: [this.glow] },
+    });
+    const text = new deck.TextLayer({
+      id: "labels", data, pickable: false, billboard: true,
+      getPosition: (d) => [d.position[0], d.position[1], this._labelStemTop(d)],
+      getText: (d) => d.name,
+      getSize: this.scope.level === "city" ? 12 : 11, sizeUnits: "pixels",
+      getPixelOffset: [0, -9],
+      getColor: [230, 238, 248, 235], fontFamily: "Inter, sans-serif", fontWeight: 600,
+      getTextAnchor: "middle", getAlignmentBaseline: "bottom",
+      outlineWidth: 2.5, outlineColor: [5, 7, 11, 235], fontSettings: { sdf: true },
+      updateTriggers: { getText: [this._sig()], getPosition: [this._sig(), this.elevationScale], getSize: [this.scope.level] },
+    });
+    return [stems, dots, text];
   }
 
   // ---------- Temporal Data Layers: T1 point core + T2 point halo ----------
@@ -1264,7 +1322,7 @@ class AtlasMap3D {
       if (L.roads) layers.push(...this._roadsLayer());
       layers.push(...this._osmOverlayLayers());
       if (L.boundary) layers.push(...this._boundaryLayer());
-      if (L.labels) layers.push(this._labelsLayer());
+      if (L.labels) layers.push(...this._labelsLayer());
       this._staticCache = { sig, layers };
       return layers;
     }
@@ -1284,7 +1342,7 @@ class AtlasMap3D {
     if (L.pointHalo) layers.push(this._pointHaloLayer());
     if (L.pointCore) layers.push(this._pointCoreLayer());
     if (L.boundary) layers.push(...this._boundaryLayer());
-    if (L.labels) layers.push(this._labelsLayer());
+    if (L.labels) layers.push(...this._labelsLayer());
     this._staticCache = { sig, layers };
     return layers;
   }
