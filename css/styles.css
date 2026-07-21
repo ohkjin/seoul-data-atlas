@@ -1448,9 +1448,34 @@ html, body {
   color: var(--toned); max-width: 720px; margin: 0 0 clamp(46px, 7vh, 76px);
 }
 
-.credits-cols {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px 40px;
+/* shared small-caps section heading (Team / Data Sources / Built With) */
+.credits-h {
+  font-family: var(--font-ui); font-weight: 600; font-size: 12px;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+  margin: 0 0 16px;
+}
+
+/* Team — role → name rows */
+.credits-people {
   padding-top: 40px; border-top: 1px solid var(--panel-border);
+  margin-bottom: 44px;
+}
+.credits-roles { margin: 0; }
+.cr-row {
+  display: grid; grid-template-columns: 240px 1fr; gap: 16px;
+  align-items: baseline; padding: 11px 0;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+.cr-row:first-child { border-top: none; }
+.cr-row dt {
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: rgba(255,255,255,0.4);
+}
+.cr-row dd { margin: 0; font-size: 15.5px; line-height: 1.5; color: var(--text); }
+.cr-fill { color: var(--amber); font-style: italic; opacity: 0.85; }
+
+.credits-cols {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 36px 40px;
 }
 .credits-block h2 {
   font-family: var(--font-ui); font-weight: 600; font-size: 12px;
@@ -1474,4 +1499,5 @@ html, body {
 
 @media (max-width: 720px) {
   .credits-cols { grid-template-columns: 1fr; gap: 30px; }
+  .cr-row { grid-template-columns: 1fr; gap: 3px; }
 }
