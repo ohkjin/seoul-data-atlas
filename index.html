@@ -151,16 +151,30 @@
 
         <!-- quick base + context toggles (top toolbar, right of the control panel).
              These are additive overlays, so they stay checkboxes rather than representations. -->
-        <div class="map-toolbar" id="map-toolbar">
-          <button data-toolbar-layer="labels">Label</button>
-          <button data-toolbar-layer="boundary" class="on">Boundary</button>
-          <button data-toolbar-layer="roads" class="on">Road Glow</button>
-          <button data-toolbar-layer="buildings">Buildings</button>
-          <button data-map-light id="tb-light" class="on" title="Natural light — turn off to remove glare in top-view">Light</button>
-          <div class="tb-sep"></div>
-          <button data-toolbar-layer="nature" title="Parks &amp; water (OSM)">Nature</button>
-          <button data-toolbar-layer="transit" title="Subway &amp; bus (OSM)">Transit</button>
-          <button data-toolbar-layer="amenity" title="Facilities (OSM)">Amenities</button>
+        <div class="toolbar-stack" id="toolbar-stack">
+          <div class="map-toolbar" id="map-toolbar">
+            <button data-toolbar-layer="labels">Label</button>
+            <button data-toolbar-layer="boundary" class="on">Boundary</button>
+            <button data-toolbar-layer="roads" class="on">Road Glow</button>
+            <button data-toolbar-layer="buildings">Buildings</button>
+            <div class="tb-sep"></div>
+            <button data-toolbar-layer="nature" title="Parks &amp; water (OSM)">Nature</button>
+            <button data-toolbar-layer="transit" title="Subway &amp; bus (OSM)">Transit</button>
+            <button data-toolbar-layer="amenity" title="Facilities (OSM)">Amenities</button>
+          </div>
+          <!-- Light toggles: icon-only row directly under the toolbar, same width.
+               Off Point to kill the top-view specular glare (keeps ambient+sun). -->
+          <div class="light-toolbar" id="light-toolbar">
+            <button data-map-light="ambient" class="on" title="Ambient fill light" aria-label="Ambient light">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="4.3"/><circle cx="12" cy="12" r="8.6" stroke-dasharray="1.5 3" opacity="0.55"/></svg>
+            </button>
+            <button data-map-light="sun" class="on" title="Directional sun — shading / depth" aria-label="Sun light">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.2 5.2l1.8 1.8M17 17l1.8 1.8M18.8 5.2L17 7M7 17l-1.8 1.8"/></svg>
+            </button>
+            <button data-map-light="point" class="on" title="Point light — turn off to remove top-view glare" aria-label="Point light">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2.6l1.9 5.7 5.7 1.9-5.7 1.9L12 17.7l-1.9-5.6L4.4 10.2l5.7-1.9z"/></svg>
+            </button>
+          </div>
         </div>
 
         <!-- (sector switcher folded into the map-panel Representation control) -->
@@ -316,7 +330,7 @@
            assets/logos/ and point <img src> at it. Until the image exists the <img>
            fails to load and the text placeholder shows instead (onerror fallback). -->
       <section class="credits-logos-wrap">
-        <h2 class="credits-h">Partners</h2>
+        <!-- <h2 class="credits-h">Partners</h2> -->
         <div class="credits-logos">
           <a class="credit-logo credit-logo--lg" href="https://spacetime.kaist.ac.kr/" target="_blank" rel="noopener" aria-label="연구실 (Lab)">
             <img src="assets/logos/stil_white.png" alt="연구실 Lab" onerror="this.remove()">
@@ -329,7 +343,7 @@
             <span class="logo-ph">조직<br>Organization</span>
           </a>
           <!-- CAUS & SAIF are colored logos → white background chip so they read on the dark page. -->
-          <a class="credit-logo credit-logo--white" href="https://caus.kaist.ac.kr/" target="_blank" rel="noopener" aria-label="조직 (Organization)">
+          <a class="credit-logo credit-logo--white credit-logo--lg" href="https://caus.kaist.ac.kr/" target="_blank" rel="noopener" aria-label="조직 (Organization)">
             <img src="assets/logos/CAUS.png" alt="조직 Organization" onerror="this.remove()">
             <span class="logo-ph">연구소<br>Institute</span>
           </a>

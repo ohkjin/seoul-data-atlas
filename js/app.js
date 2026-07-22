@@ -615,13 +615,15 @@ function initControlPanel() {
     });
   });
 
-  // Natural-light toggle (not a map layer — swaps the deck LightingEffect). Off gives
-  // flat ambient-only shading so top-view / 2D isn't blown out by specular glare.
-  const lightBtn = document.getElementById("tb-light");
-  if (lightBtn) lightBtn.addEventListener("click", () => {
-    const on = !map.naturalLight;
-    map.setNaturalLight(on);
-    lightBtn.classList.toggle("on", on);
+  // Three independent light toggles (not map layers — they rebuild the deck
+  // LightingEffect). Turn off Point to remove the specular glare in top-view.
+  document.querySelectorAll("#light-toolbar button[data-map-light]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const which = btn.dataset.mapLight;
+      const on = !map.lightOn[which];
+      map.setLight(which, on);
+      btn.classList.toggle("on", on);
+    });
   });
   syncToolbar();
 
@@ -705,8 +707,9 @@ function syncToolbar() {
   document.querySelectorAll("#map-toolbar button[data-toolbar-layer]").forEach((btn) => {
     btn.classList.toggle("on", !!map.layers[btn.dataset.toolbarLayer]);
   });
-  const lightBtn = document.getElementById("tb-light");
-  if (lightBtn) lightBtn.classList.toggle("on", map.naturalLight !== false);
+  document.querySelectorAll("#light-toolbar button[data-map-light]").forEach((btn) => {
+    btn.classList.toggle("on", map.lightOn[btn.dataset.mapLight] !== false);
+  });
 }
 
 // Set the glow (3D bloom) and reflect it on the slider + read-out.

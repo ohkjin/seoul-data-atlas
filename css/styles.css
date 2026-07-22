@@ -420,22 +420,46 @@ html, body {
 .side-nav .nav-item.active .nav-icon { color: var(--cyan); }
 
 /* top toolbar: quick base-layer toggle pills, to the right of the control panel */
-.map-toolbar {
-  /* compact vertical strip at the top-left; slides to the right of the overlay
-     panel when one is pinned (see .map-stage.panel-pinned below) */
+/* toolbar + light row share one absolutely-positioned column so the light row sits
+   directly under the toolbar and stretches to the same width (align-items:stretch). */
+.toolbar-stack {
   position: absolute; top: 16px; left: 16px; z-index: 5;
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+}
+.map-toolbar {
+  /* compact vertical strip; the .toolbar-stack owns positioning */
   display: flex; flex-direction: column; align-items: stretch; gap: 6px;
   background: linear-gradient(180deg, rgba(14,18,28,0.86), rgba(9,12,20,0.82));
   border: 1px solid rgba(255,255,255,0.09); border-radius: 10px;
   padding: 6px; backdrop-filter: blur(24px);
   box-shadow: 0 20px 50px rgba(0,0,0,0.5);
 }
+/* light toggles: icon-only, horizontal, same box style, full stack width */
+.light-toolbar {
+  display: flex; flex-direction: row; gap: 6px;
+  background: linear-gradient(180deg, rgba(14,18,28,0.86), rgba(9,12,20,0.82));
+  border: 1px solid rgba(255,255,255,0.09); border-radius: 10px;
+  padding: 6px; backdrop-filter: blur(24px);
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+}
+.light-toolbar button {
+  flex: 1 1 0; display: flex; align-items: center; justify-content: center;
+  padding: 7px 0; background: rgba(255,255,255,0.03);
+  border: 1px solid var(--panel-border); border-radius: 7px;
+  color: var(--muted); cursor: pointer; transition: all 0.15s ease;
+}
+.light-toolbar button svg { width: 16px; height: 16px; display: block; }
+.light-toolbar button:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.light-toolbar button.on {
+  color: #fff; border-color: rgba(125,167,255,0.55);
+  background: rgba(125,167,255,0.16); box-shadow: 0 0 14px rgba(125,167,255,0.22);
+}
 /* when a nav overlay panel is pinned open, move the toolbar to the right of it.
    (No CSS transition here: deck.gl's constant repaint keeps a `left` transition
    stuck mid-flight, so it would pin the toolbar at its start position.) */
 /* clears the pinned panel (16px gutter + 320px panel + 16px gap) — constant, so the
    toolbar never shifts when switching datasets */
-.map-stage.panel-pinned .map-toolbar { left: 352px; }
+.map-stage.panel-pinned .toolbar-stack { left: 352px; }
 .map-toolbar button {
   background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border);
   border-radius: 7px; color: var(--muted); font-size: 11px; font-family: var(--font-ui);
@@ -1492,7 +1516,7 @@ html, body {
 
 /* Partner / institution logos — 4 slots. Replace .logo-ph with <img>. */
 .credits-logos-wrap {
-  margin-top: 44px; padding-top: 40px;
+  margin-top: 44px; padding-top: 64px;
   border-top: 1px solid var(--panel-border);
 }
 .credits-logos { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
@@ -1511,11 +1535,11 @@ html, body {
    and invert(1) turns that silhouette white. Note: brightness() alone can't whiten
    black (black × anything = black); the invert is what does it. */
 .credit-logo img {
-  max-height: 55px; max-width: 170px; width: auto; object-fit: contain;
+  max-height: 50px; max-width: 170px; width: auto; object-fit: contain;
   opacity: 0.9; transition: opacity .15s ease;
 }
-.credit-logo--lg { height: 78px; min-width: 148px; padding: 10px 18px; }
-.credit-logo--lg img { max-height: 58px; max-width: 200px; }
+/* .credit-logo--lg { height: 78px; min-width: 148px; padding: 10px 18px; } */
+.credit-logo--lg img { max-height: 63px; max-width: 200px; }
 
 /* White chip for colored logos (CAUS, SAIF) so they read on the dark page without
    any filtering — the mark keeps its original colors on a solid white background. */
@@ -1555,7 +1579,7 @@ html, body {
 .cr-name { font-size: 14.5px; line-height: 1.45; color: var(--text); }
 
 .credits-foot {
-  margin-top: clamp(48px, 8vh, 80px); padding-top: 28px;
+  margin-top: clamp(48px, 8vh, 80px); padding-top: 1px;
   border-top: 1px solid var(--panel-border);
 }
 .credits-foot p { font-size: 13px; line-height: 1.7; color: var(--muted); max-width: 720px; margin: 0 0 14px; }

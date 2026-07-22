@@ -160,16 +160,15 @@ class AtlasMap3D {
       antialias: true, attributionControl: false,
       maxBounds: [[minx - padLng, miny - padLat], [maxx + padLng, maxy + padLat]],
     });
+    // Three independently-toggleable lights. ambient = flat fill, sun = directional
+    // shading, point = the blue specular highlight (the top-view glare — turn it off
+    // to kill the blowout while keeping ambient+sun for a lit, readable scene).
     const ambient = new deck.AmbientLight({ color: [200, 214, 255], intensity: 1.1 });
     const sun = new deck.DirectionalLight({ color: [255, 255, 255], intensity: 1.4, direction: [-1, -3, -1] });
     const point = new deck.PointLight({ color: [125, 167, 255], intensity: 1.5, position: [126.99, 37.4, 90000] });
-    // Two lighting rigs the user can toggle. FULL = directional sun + point for 3D
-    // modelling. FLAT = ambient-only (bright), which kills the specular glare that
-    // blows out extruded faces in top-view/2D. See setNaturalLight().
-    this._lightFull = new deck.LightingEffect({ ambient, sun, point });
-    this._lightFlat = new deck.LightingEffect({ ambient: new deck.AmbientLight({ color: [222, 230, 246], intensity: 2.4 }) });
-    this.naturalLight = true;
-    this.lighting = this._lightFull;
+    this._lights = { ambient, sun, point };
+    this.lightOn = { ambient: true, sun: true, point: true };
+    this.lighting = new deck.LightingEffect(this._lights);
 
     // Overlaid (NOT interleaved): deck renders in its own canvas over the
     // basemap with its own depth buffer. Interleaved mode shares MapLibre's
@@ -1533,12 +1532,23 @@ class AtlasMap3D {
   // Per-layer radius multiplier (on top of the common Radius slider).
   setLayerRadius(layer, v) { this.layerRadius[layer] = v; this.render(); }
   setElevationScale(v) { this.elevationScale = v; this.render(); }
-  // Swap the lighting rig. off → flat ambient-only (no specular glare in top-view).
-  setNaturalLight(on) {
-    this.naturalLight = !!on;
-    this.lighting = this.naturalLight ? this._lightFull : this._lightFlat;
+  // Rebuild the LightingEffect from whichever of the 3 lights are on.
+  _rebuildLighting() {
+    const active = {};
+    if (this.lightOn.ambient) active.ambient = this._lights.ambient;
+    if (this.lightOn.sun) active.sun = this._lights.sun;
+    if (this.lightOn.point) active.point = this._lights.point;
+    // Deck falls back to a default rig when given no lights; a zero ambient keeps
+    // "all off" genuinely dark instead of snapping back to defaults.
+    if (!Object.keys(active).length) active.ambient = new deck.AmbientLight({ color: [0, 0, 0], intensity: 0 });
+    this.lighting = new deck.LightingEffect(active);
     if (this.overlay) this.overlay.setProps({ effects: [this.lighting] });
     this.render();
+  }
+  setLight(which, on) {
+    if (!(which in this.lightOn)) return;
+    this.lightOn[which] = !!on;
+    this._rebuildLighting();
   }
   setRadiusScale(v) { this.radiusScale = v; this.render(); }
   setOpacity(v) { this.opacity = v; this.render(); }
