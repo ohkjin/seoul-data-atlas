@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- This page lives in prototype/ but its relative URLs (js/, data/, css/) are
+     resolved from the project root, so the shared Atlas data layer keeps working. -->
+<base href="../" />
+<title>Layer-Set Prototype · full composure</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,500;1,400&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" rel="stylesheet" />
+<link href="css/styles.css" rel="stylesheet" />
+<link href="prototype/prototype2.css" rel="stylesheet" />
+<link href="prototype/prototype3.css" rel="stylesheet" />
+</head>
+<body>
+<section class="dashboard" id="dashboard">
+
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">✧</span><span class="brand-name">SEOUL DATA ATLAS</span></div>
+    <div class="topbar-breadcrumb"><span class="crumb">Sales</span><span class="sep">›</span><span class="crumb current">Layer Set</span></div>
+    <div class="topbar-right">
+      <div class="dataset-switch">
+        <span class="ds-pill"><span class="dot" style="background:#FFB86B"></span>Weather</span>
+        <span class="ds-pill selected"><span class="dot" style="background:#7DA7FF"></span>Sales</span>
+        <span class="ds-pill"><span class="dot" style="background:#E45C91"></span>RHSI</span>
+        <span class="ds-pill"><span class="dot" style="background:#3FE6A5"></span>Urban</span>
+        <span class="ds-pill"><span class="dot" style="background:#39E6E6"></span>SHAP</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="dash-body">
+    <nav class="side-nav">
+      <button class="nav-item"><span class="nav-icon">◱</span><span class="nav-label"><b>Overview</b></span></button>
+      <button class="nav-item"><span class="nav-icon">▤</span><span class="nav-label"><b>Library</b></span></button>
+      <button class="nav-item active"><span class="nav-icon">▦</span><span class="nav-label"><b>Map</b></span></button>
+      <button class="nav-item" id="nav-saved"><span class="nav-icon">◈</span><span class="nav-label"><b>Saved</b></span></button>
+      <div class="nav-spacer"></div>
+      <button class="nav-item"><span class="nav-icon">⚙</span><span class="nav-label"><b>Settings</b></span></button>
+    </nav>
+
+    <div class="analysis-grid">
+
+      <!-- MAP HERO -->
+      <section class="atlas-canvas panel-cell">
+        <div class="map-stage" id="map-stage">
+          <div id="pmap"></div>
+
+          <!-- LEFT control panel: layer-set editor + all map settings -->
+          <aside class="map-control ls-panel" id="ls-panel">
+            <div class="panel-head"><div class="panel-name">LAYER SET</div><div class="panel-state">EDIT</div></div>
+            <div id="setbar"></div>
+            <div id="cards"></div>
+
+            <div class="mc-sep"></div>
+            <div class="mc-title">MAP MODE</div>
+            <div class="seg p3seg" id="p3-mode"><button class="active" data-v="3d">3D</button><button data-v="2d">2D</button><button data-v="top">Top view</button></div>
+
+            <div class="mc-title">THEME</div>
+            <div class="seg p3seg" id="p3-theme"><button class="active" data-v="glow">Night Glow</button><button data-v="city">Night City</button><button data-v="heat">Heat Field</button><button data-v="points">Data Points</button></div>
+
+            <div class="mc-title">CAMERA</div>
+            <div class="mc-toggles">
+              <label class="mc-toggle"><input type="checkbox" id="p3-rotate" /> <span>Auto-rotate</span></label>
+              <label class="mc-toggle"><input type="checkbox" /> <span>Follow selection</span></label>
+            </div>
+            <div class="mc-slider"><label>Tilt <span>45°</span></label><input type="range" min="0" max="85" value="45" /></div>
+            <div class="mc-slider"><label>Bearing <span>-12°</span></label><input type="range" min="-180" max="180" value="-12" /></div>
+
+            <div class="mc-title">BLEND MODE</div>
+            <div class="seg p3seg" id="p3-blend">
+              <button class="active" data-v="normal">Normal</button>
+              <button data-v="additive">Additive</button>
+              <button data-v="subtractive">Subtractive</button>
+            </div>
+
+            <div class="mc-title">GLOBAL</div>
+            <div class="mc-slider"><label>Elevation <span>1.0</span></label><input type="range" min="0" max="3" step="0.1" value="1" /></div>
+            <div class="mc-slider"><label>Radius <span>1.0</span></label><input type="range" min="0.3" max="3" step="0.1" value="1" /></div>
+            <div class="mc-slider"><label>Opacity <span>0.9</span></label><input type="range" min="0.2" max="1" step="0.05" value="0.9" /></div>
+            <div class="mc-slider"><label>Glow <span>1.4</span></label><input type="range" min="0" max="2" step="0.1" value="1.4" /></div>
+          </aside>
+
+          <!-- top toolbar -->
+          <div class="map-toolbar" id="map-toolbar">
+            <button data-v>Label</button>
+            <button class="on" data-v>Boundary</button>
+            <button class="on" data-v>Road Glow</button>
+            <button data-v>Buildings</button>
+            <button class="tb-reset">Reset</button>
+          </div>
+
+          <div id="legend"></div>
+        </div>
+
+        <!-- Timeline strip -->
+        <div class="timeline" id="timeline">
+          <div class="tl-controls">
+            <button class="tl-play" id="p3-play">▶</button>
+            <div class="tl-speeds"><button class="active">1×</button><button>2×</button><button>4×</button></div>
+            <button class="tl-reset">Reset</button>
+            <div class="tl-readout"><b>Seoul</b> · 2024-07-09 · 26.6°C · ₩3.2억</div>
+          </div>
+          <div class="tl-chart" id="p3-chart"></div>
+          <input type="range" class="tl-scrub" min="0" max="365" value="190" />
+        </div>
+
+        <!-- Footer -->
+        <footer class="uhus-footer" id="uhus-footer">
+          <div class="footer-status"><span class="status-dot"></span><span class="status-text">UHUS Active</span></div>
+          <div class="footer-meta view"><span class="meta-label">View</span><span class="meta-value strong">Sales · Composition</span></div>
+          <div class="footer-meta scope"><span class="meta-label">Scope</span><span class="meta-value">Seoul · 422 dong</span></div>
+          <div class="footer-meta period"><span class="meta-label">Period</span><span class="meta-value amber">2024</span></div>
+          <div class="footer-meta join"><span class="meta-label">Join</span><span class="meta-value">dong_code + date</span></div>
+        </footer>
+      </section>
+
+      <!-- RIGHT PANEL -->
+      <aside class="panel-host mode-detail" id="panel-host">
+        <nav class="panel-rail">
+          <button class="rail-tab active" data-panel-tab="detail"><svg viewBox="0 0 24 24"><path d="M7 4h7l3 3v13H7z"/><path d="M14 4v4h4"/><path d="M9 12h6"/><path d="M9 16h6"/></svg><span>Detail</span></button>
+          <button class="rail-tab" data-panel-tab="insights"><svg viewBox="0 0 24 24"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-8"/><path d="M22 20v-5"/><path d="M2 20h20"/></svg><span>Insights</span></button>
+          <button class="rail-tab" data-panel-tab="library"><svg viewBox="0 0 24 24"><path d="M4 7.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9.5a2 2 0 0 0-2-2h-6.4L9.8 5.6A2 2 0 0 0 8.3 5H6a2 2 0 0 0-2 2.5z"/><path d="M4 9h16"/></svg><span>Library</span></button>
+          <div class="rail-spine"></div>
+        </nav>
+        <div class="panel-content">
+          <section class="panel-wrap">
+            <div class="choice-note"><span>Dataset Panel</span><strong>Sales Signal</strong></div>
+            <article class="panel">
+              <header class="panel-header"><div class="panel-label">Detail · Sales</div><div class="menu">⋯</div></header>
+              <div class="panel-body">
+                <p class="p3-desc">Daily card-transaction amounts across ~85 industries per dong — the behavioural signal behind retail heat sensitivity.</p>
+                <div class="p3-metrics">
+                  <div class="p3-metric primary"><span class="p3-k">Spatial unit</span><b>Dong · 422</b><span class="p3-s">joined by dong_code</span></div>
+                  <div class="p3-metric"><span class="p3-k">Temporal</span><b>Day · 366</b><span class="p3-s">2024 daily</span></div>
+                  <div class="p3-metric"><span class="p3-k">Business unit</span><b>85 industries</b><span class="p3-s">6 theme groups</span></div>
+                  <div class="p3-metric"><span class="p3-k">Source</span><b>Seoul AI Fdn</b><span class="p3-s">card transactions</span></div>
+                </div>
+                <div class="p3-subhead">Region · Noryangjin 2-dong</div>
+                <div class="p3-rows">
+                  <div class="p3-row"><span>RHSI</span><b>−0.182</b></div>
+                  <div class="p3-row"><span>Rank</span><b>3 / 422</b></div>
+                  <div class="p3-row"><span>Hot / mild days</span><b>24 / 74</b></div>
+                  <div class="p3-row"><span>Most sensitive</span><b>Apparel −41%</b></div>
+                </div>
+              </div>
+            </article>
+          </section>
+          <section class="insights-view">
+            <article class="panel">
+              <header class="panel-header"><div class="panel-label">Insights</div><div class="ins-col-sub">Sales · Seoul</div></header>
+              <div class="ins-body">
+                <figure class="p3-fig"><div class="p3-fig-h"><span class="p3-kick">FIGURE 1</span><h4>Hot days cut retail sales</h4></div><div class="p3-chart"></div><p class="p3-cap">Mild vs extreme-heat retail sales by group.</p></figure>
+                <figure class="p3-fig"><div class="p3-fig-h"><span class="p3-kick">FIGURE 2</span><h4>Six-theme composition</h4></div><div class="p3-chart donut"></div><p class="p3-cap">Share of mild-day retail by group.</p></figure>
+              </div>
+            </article>
+          </section>
+          <section class="library-view"><article class="panel"><header class="panel-header"><div class="panel-label">Library</div></header><div class="panel-body"><p class="p3-desc">Dataset catalogue…</p></div></article></section>
+        </div>
+      </aside>
+
+    </div>
+  </div>
+</section>
+
+<script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/deck.gl@9/dist.min.js"></script>
+<script>window.__cb = Date.now();
+  ["js/data.js", "js/prototype/model.js", "js/prototype/seed-sales.js", "js/prototype/preview.js", "js/prototype/panel.js", "js/prototype/proto3.js"]
+    .forEach(function (s) { document.write('<script src="' + s + '?v=' + window.__cb + '"><\/script>'); });
+</script>
+</body>
+</html>

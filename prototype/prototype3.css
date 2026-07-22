@@ -1,0 +1,59 @@
+/* ── prototype3: full-composure extras (rides on styles.css + prototype2.css) ── */
+
+/* the left control panel now holds the editor AND all the map settings → let the
+   whole flyout scroll as one, not a nested scroll inside #cards */
+.ls-panel { max-height: calc(100% - 32px); overflow-y: auto; }
+.ls-panel #cards { max-height: none; overflow: visible; margin: 0; padding: 0; }
+.mc-sep { height: 1px; background: var(--panel-border); margin: 15px 0 5px; }
+
+/* dataset selection lives in the topbar / project panel, not here — drop the
+   Sales/Weather switcher tabs, keep the quiet one-line context header */
+#setbar .ktabs { display: none; }
+#setbar .ksetdesc { padding: 2px 0 10px; margin-bottom: 4px; border-bottom: 1px solid var(--panel-border); }
+
+/* safety: keep a usable map area (and thus a usable left panel) even on short /
+   narrow viewports, where the responsive layout would otherwise starve it */
+#map-stage { min-height: 60vh; }
+.ls-panel { min-height: 220px; }
+
+/* topbar breadcrumb + dataset pills (mockup) */
+.topbar-breadcrumb .crumb { color: var(--muted); font-size: 12px; }
+.topbar-breadcrumb .crumb.current { color: var(--text); }
+.topbar-breadcrumb .sep { color: var(--muted); margin: 0 6px; }
+.dataset-switch { display: flex; gap: 6px; }
+.ds-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted);
+  padding: 4px 10px; border: 1px solid var(--panel-border); border-radius: 20px; cursor: default; }
+.ds-pill.selected { color: var(--text); border-color: rgba(125,167,255,0.5); background: rgba(125,167,255,0.1); }
+.ds-pill .dot { width: 7px; height: 7px; border-radius: 50%; }
+
+/* right panel — Detail mockup */
+.p3-desc { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 0 0 13px; }
+.p3-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
+.p3-metric { background: rgba(255,255,255,0.025); border: 1px solid var(--panel-border); border-radius: 9px;
+  padding: 9px 11px; display: flex; flex-direction: column; gap: 2px; }
+.p3-metric.primary { border-color: rgba(125,167,255,0.3); }
+.p3-k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.p3-metric b { font-size: 14px; color: var(--text); }
+.p3-s { font-size: 10px; color: var(--muted); }
+.p3-subhead { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted); margin: 4px 0 5px; }
+.p3-rows { display: flex; flex-direction: column; }
+.p3-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted);
+  padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.p3-row b { color: var(--text); font-family: var(--font-mono); font-weight: 500; }
+
+/* right panel — Insights mockup figures */
+.p3-fig { margin: 0 0 16px; }
+.p3-fig-h { display: flex; align-items: baseline; gap: 9px; margin-bottom: 7px; }
+.p3-kick { font-family: var(--font-mono); font-size: 8.5px; color: var(--muted); letter-spacing: 0.12em; }
+.p3-fig-h h4 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+.p3-chart { height: 118px; border-radius: 9px; border: 1px solid var(--panel-border);
+  background: linear-gradient(180deg, rgba(125,167,255,0.05), rgba(255,255,255,0.01));
+  background-image: repeating-linear-gradient(90deg, rgba(255,184,107,0.28) 0 7px, transparent 7px 24px);
+  background-size: auto 62%; background-position: bottom; background-repeat: repeat-x; }
+.p3-chart.donut { background: radial-gradient(circle at 34% 50%, transparent 32px, rgba(125,167,255,0.28) 32px 50px,
+  rgba(255,184,107,0.24) 50px 55px, transparent 56px), rgba(255,255,255,0.01); }
+.p3-cap { font-size: 10.5px; color: var(--muted); margin: 6px 0 0; line-height: 1.4; }
+
+/* faux timeline sparkline fills the chart area */
+#p3-chart { position: relative; }
+#p3-chart svg { display: block; }

@@ -16,11 +16,9 @@ Thumbs.db
 
 # docs / prototype
 docs/
-prototype/
-js/prototype/
 
 # data preparation
-scripts/
+# scripts/
 
 # deploy cruft
 data/buildings_fetch_progress.json

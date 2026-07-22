@@ -1,0 +1,120 @@
+:root {
+  --bg: #070a11; --panel: #0d121c; --border: rgba(255,255,255,0.1); --text: #e9edf5;
+  --muted: #8c93a3; --accent: #ffb86b; --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font-family: Inter, system-ui, sans-serif; font-size: 13px; }
+#wrap { display: flex; height: 100vh; }
+#side { width: 360px; min-width: 360px; display: flex; flex-direction: column;
+  border-right: 1px solid var(--border); background: linear-gradient(180deg, #0b0f18, #080b12); }
+#cards { flex: 1; overflow-y: auto; padding: 10px 12px 18px; }
+#pmap { flex: 1 1 auto; position: relative; }
+.maplibregl-map { position: absolute; inset: 0; }
+
+/* Layer Set switcher */
+#setbar { padding: 12px 12px 10px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.02); }
+.ktabs { display: flex; gap: 5px; margin-bottom: 8px; }
+.ktab { flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 7px;
+  color: var(--muted); font-size: 12px; font-weight: 600; padding: 7px 4px; cursor: pointer; }
+.ktab.on { color: #16202e; background: var(--accent); border-color: var(--accent); }
+.ksetdesc { font-size: 11px; color: var(--muted); line-height: 1.5; }
+.ksetdesc b { color: var(--text); font-size: 13px; }
+.ksetdesc span { font-family: var(--mono); font-size: 9px; text-transform: uppercase; }
+
+/* sections */
+.ksec { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 12px;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 2px 6px; }
+.ksectag { font-family: var(--mono); font-size: 8.5px; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+
+/* layer group (functional container) */
+.kgroup { border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; margin-bottom: 9px;
+  background: rgba(255,255,255,0.015); }
+.kgroup.ghidden { opacity: 0.55; }
+.kgrp-head { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-bottom: 1px solid var(--border); }
+.kgrp-name { font-weight: 600; font-size: 12.5px; }
+.kgrp-op { margin-left: auto; width: 62px; accent-color: var(--accent); }
+.kgrp-fold { font-size: 13px; }
+.kgrp-layers { padding: 8px 8px 6px; display: flex; flex-direction: column; gap: 7px; min-height: 30px; border-radius: 8px; }
+.kgrp-layers.dropok, .kloose.dropok { outline: 2px dashed var(--accent); outline-offset: -2px; background: rgba(255,184,107,0.06); }
+.kloose { display: flex; flex-direction: column; gap: 7px; min-height: 34px; border-radius: 8px; padding: 2px; }
+.kdrop { font-size: 10.5px; color: var(--muted); text-align: center; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; }
+.kcard[draggable] { cursor: grab; }
+.kcard.dragging { opacity: 0.45; }
+.kaddlayer { align-self: flex-start; background: none; border: 1px dashed var(--border); color: var(--muted);
+  font-size: 11px; padding: 4px 9px; border-radius: 7px; cursor: pointer; }
+.kaddlayer:hover { color: var(--accent); border-color: rgba(255,184,107,0.5); }
+.kaddgroup { width: 100%; margin: 6px 0 2px; }
+
+/* kepler-style layer card */
+.kcard { border: 1px solid var(--border); border-radius: 9px; margin-bottom: 8px; overflow: hidden;
+  background: var(--panel); }
+.kcard.open { border-color: rgba(255,184,107,0.4); }
+.kcard-head { display: flex; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; }
+.kcard-head:hover { background: rgba(255,255,255,0.03); }
+.keye { display: inline-flex; }
+.kname { flex: 1; font-weight: 600; }
+.kbadge { font-size: 8.5px; font-family: var(--mono); border-radius: 4px; padding: 1px 5px; text-transform: uppercase; }
+.kbadge.atomic { background: rgba(125,167,255,0.16); color: #9dbcff; }
+.kbadge.composite { background: rgba(255,184,107,0.16); color: var(--accent); }
+.kcaret { color: var(--muted); width: 12px; text-align: center; }
+.ktag-p { font-size: 8.5px; font-family: var(--mono); border-radius: 4px; padding: 1px 5px; text-transform: uppercase; }
+.ktag-p.preset { background: rgba(63,230,165,0.16); color: #6fe6b6; }
+.ktag-p.custom { background: rgba(255,255,255,0.08); color: var(--muted); }
+.kdel { background: none; border: none; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.kdel:hover { color: #e4524e; }
+.kaddrow { display: flex; gap: 6px; margin: 6px 0 2px; }
+.kadd { flex: 1; background: rgba(255,184,107,0.1); border: 1px dashed rgba(255,184,107,0.5);
+  color: var(--accent); font-size: 11.5px; font-weight: 600; padding: 8px 6px; border-radius: 8px; cursor: pointer; }
+.kadd:hover { background: rgba(255,184,107,0.18); }
+.kreadas { font-size: 11px; color: var(--muted); padding: 4px 0 1px; border-top: 1px dashed var(--border); margin-top: 2px; }
+.kreadas b { color: #6fe6b6; text-transform: capitalize; }
+.khelp { margin-left: 5px; cursor: help; opacity: 0.6; }
+.kentry { font-size: 10px; color: var(--accent); background: rgba(255,184,107,0.08);
+  border: 1px solid rgba(255,184,107,0.25); border-radius: 6px; padding: 5px 7px; line-height: 1.4; }
+.kserie .ab { width: auto; min-width: 13px; height: 13px; border-radius: 3px; background: rgba(255,255,255,0.12);
+  color: var(--text); font-size: 8.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; padding: 0 3px; }
+.kbadge.s-single { background: rgba(125,167,255,0.16); color: #9dbcff; }
+.kbadge.s-total { background: rgba(63,230,165,0.16); color: #6fe6b6; }
+.kbadge.s-composition { background: rgba(255,184,107,0.16); color: var(--accent); }
+.kbadge.s-comparison { background: rgba(228,92,145,0.18); color: #f08cb2; }
+.klg-swatches { display: inline-flex; gap: 2px; flex: none; }
+.klg-f { color: var(--muted); font-style: italic; }
+.kbody { padding: 4px 11px 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.krow { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.02em; }
+.krow select { text-transform: none; letter-spacing: 0; }
+select { width: 100%; background: #0a0e16; color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px; font-size: 12px; }
+select:disabled { opacity: 0.5; }
+.kseries { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 2px 0; }
+.kserie { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
+.kserie i { width: 9px; height: 9px; border-radius: 50%; }
+.ktag, .khint { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+.khint { font-family: inherit; line-height: 1.45; }
+.kadv { font-size: 11px; }
+.kadv summary { cursor: pointer; color: var(--accent); font-size: 11px; padding: 3px 0; }
+.kadv[open] { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
+.knote { font-size: 10.5px; color: var(--muted); line-height: 1.55; margin-top: 12px;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; }
+.pm-empty { color: var(--muted); padding: 18px; }
+
+/* icon segmented buttons */
+.kseg { display: flex; gap: 4px; margin-top: 2px; }
+.ksegb { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 7px;
+  color: var(--muted); padding: 7px 2px 6px; cursor: pointer; }
+.ksegb i { font-style: normal; font-size: 14px; line-height: 1; }
+.ksegb span { font-size: 9px; }
+.ksegb:hover { color: var(--text); }
+.ksegb.on { color: #16202e; background: var(--accent); border-color: var(--accent); }
+
+/* legend over the map */
+#legend { position: absolute; left: 14px; bottom: 14px; z-index: 5; background: rgba(9,13,22,0.9);
+  border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; backdrop-filter: blur(10px);
+  min-width: 150px; max-width: 240px; }
+#legend:empty { display: none; }
+.klg-title { font-size: 9.5px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; margin-bottom: 6px; }
+.klg-row { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text); padding: 1px 0; }
+.klg-bar { width: 34px; height: 8px; border-radius: 3px; flex: none; }
+.klg-ring { width: 11px; height: 11px; border-radius: 50%; border: 2px solid; flex: none; }

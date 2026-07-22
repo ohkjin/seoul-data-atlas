@@ -1,0 +1,191 @@
+/* ── Atlas-design skin for the Layer-Set prototype ──────────────────────────
+   Rides on css/styles.css (theme vars, topbar, side-nav, map-control, panel-head)
+   and restyles the layer-set panel markup to feel native. */
+
+.dashboard { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+#pmap { position: absolute; inset: 0; }
+.maplibregl-map { position: absolute; inset: 0; }
+.proto-tag { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--muted); border: 1px solid var(--panel-border); border-radius: 6px; padding: 3px 8px; }
+
+/* widen the map-control flyout to host the editor, keep its glassy look */
+.ls-panel { width: 360px; padding: 12px 12px 16px; }
+.ls-panel #cards { max-height: calc(100vh - 230px); overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+
+/* Layer Set switcher (setbar) */
+#setbar { margin-bottom: 10px; }
+.ktabs { display: flex; gap: 4px; margin-bottom: 9px; }
+.ktab { flex: 1; background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 7px;
+  color: var(--muted); font-size: 11px; font-weight: 600; padding: 7px 4px; cursor: pointer; transition: all .15s ease; }
+.ktab:hover { color: var(--text); border-color: rgba(255,255,255,0.18); }
+.ktab.on { color: #fff; border-color: rgba(125,167,255,0.6); background: rgba(125,167,255,0.16); box-shadow: 0 0 14px rgba(125,167,255,0.22); }
+.ksetdesc { font-size: 10.5px; color: var(--muted); line-height: 1.5; }
+.ksetdesc b { color: var(--text); font-size: 12.5px; }
+.ksetdesc span { font-family: var(--font-mono); font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* section header (like .mc-title) */
+.ksec { display: flex; align-items: center; gap: 7px; font-size: 9.5px; font-weight: 600; letter-spacing: 0.16em;
+  color: var(--muted); text-transform: uppercase; margin: 13px 2px 6px; }
+.ksectag { font-family: var(--font-mono); font-size: 8px; border: 1px solid var(--panel-border); border-radius: 4px; padding: 1px 5px; letter-spacing: 0.06em; }
+
+/* group folder */
+.kgroup { border: 1px solid var(--panel-border); border-radius: 10px; margin-bottom: 8px; background: rgba(255,255,255,0.02); }
+.kgroup.ghidden { opacity: 0.5; }
+.kgrp-head { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-bottom: 1px solid var(--panel-border); }
+.kgrp-fold { font-size: 12px; opacity: 0.85; }
+.kgrp-name { font-weight: 600; font-size: 12px; }
+.kgrp-op { margin-left: auto; width: 58px; accent-color: var(--cold-blue); }
+.kgrp-layers { padding: 8px; display: flex; flex-direction: column; gap: 7px; min-height: 30px; border-radius: 8px; }
+.kgrp-layers.dropok, .kloose.dropok { outline: 2px dashed var(--amber); outline-offset: -2px; background: rgba(255,184,107,0.06); }
+.kloose { display: flex; flex-direction: column; gap: 7px; min-height: 32px; padding: 2px; border-radius: 8px; }
+.kdrop { font-size: 10px; color: var(--muted); text-align: center; padding: 9px; border: 1px dashed var(--panel-border); border-radius: 8px; }
+.keye { display: inline-flex; }
+.keye input, .kgrp-head input[type=checkbox] { accent-color: var(--cold-blue); margin: 0; }
+
+/* layer card */
+.kcard { border: 1px solid var(--panel-border); border-radius: 9px; background: rgba(255,255,255,0.025); overflow: hidden; }
+.kcard[draggable] { cursor: grab; }
+.kcard.dragging { opacity: 0.45; }
+.kcard.open { border-color: rgba(125,167,255,0.32); background: rgba(125,167,255,0.045); }
+.kcard-head { display: flex; align-items: center; gap: 7px; padding: 8px 9px; cursor: pointer; }
+.kcard-head:hover { background: rgba(255,255,255,0.03); }
+.kname { flex: 1; font-weight: 500; font-size: 12px; }
+.kcaret { color: var(--muted); width: 11px; text-align: center; }
+.kdel { background: none; border: none; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.kdel:hover { color: var(--magenta); }
+
+/* badges / tags */
+.kbadge, .ktag-p { font-size: 8px; font-family: var(--font-mono); border-radius: 4px; padding: 1px 5px; text-transform: uppercase; letter-spacing: 0.04em; }
+/* desaturated so the badges read as part of the muted chrome, not pop */
+.kbadge.s-single { background: rgba(125,167,255,0.10); color: #9fb0cf; }
+.kbadge.s-total { background: rgba(120,200,160,0.08); color: #9dbbad; }
+.kbadge.s-composition { background: rgba(255,184,107,0.09); color: #c6ac8c; }
+.kbadge.s-comparison { background: rgba(200,140,165,0.10); color: #b79aa7; }
+.ktag-p.preset { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid var(--panel-border); }
+.ktag-p.custom { background: rgba(255,255,255,0.035); color: var(--muted); border: 1px solid var(--panel-border); }
+
+/* card body controls */
+.kbody { padding: 4px 10px 11px; border-top: 1px solid var(--panel-border); display: flex; flex-direction: column; gap: 8px; }
+.krow { display: flex; flex-direction: column; gap: 3px; font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.krow select { text-transform: none; letter-spacing: 0; }
+select { width: 100%; background: rgba(255,255,255,0.03); color: var(--text); border: 1px solid var(--panel-border);
+  border-radius: 6px; padding: 6px 7px; font-size: 12px; font-family: var(--font-ui); }
+select:hover { border-color: rgba(255,255,255,0.2); }
+select:disabled { opacity: 0.5; }
+.kseries { display: flex; flex-wrap: wrap; gap: 5px 11px; align-items: center; padding: 2px 0; }
+.kserie { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
+.kserie i { width: 9px; height: 9px; border-radius: 50%; }
+.kserie i.ab { width: auto; min-width: 13px; height: 13px; border-radius: 3px; background: rgba(255,255,255,0.12);
+  color: var(--text); font-size: 8px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; padding: 0 3px; }
+.kreadas { font-size: 11px; color: var(--muted); padding: 4px 0 1px; border-top: 1px dashed var(--panel-border); }
+.kreadas b { color: var(--toned); text-transform: capitalize; }
+.khelp { margin-left: 5px; cursor: help; opacity: 0.6; }
+.kentry { font-size: 10px; color: var(--muted); background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border);
+  border-radius: 6px; padding: 5px 7px; line-height: 1.4; }
+.kadv summary, .kapp summary { cursor: pointer; color: var(--muted); font-size: 10.5px; padding: 2px 0; letter-spacing: 0.04em; }
+.kadv summary:hover, .kapp summary:hover { color: var(--text); }
+/* per-layer Appearance section */
+.kapp { display: flex; flex-direction: column; gap: 13px; }
+.kapp[open] > summary { color: var(--text); margin-bottom: 4px; }
+.kaline { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--muted); padding: 3px 0; }
+.kaline > span:first-child { min-width: 62px; text-transform: none; }
+.kaline input[type=checkbox] { accent-color: var(--cold-blue); margin: 0; width: 15px; height: 15px; }
+.kmini { flex: 1; height: 16px; accent-color: var(--cold-blue); cursor: pointer; }
+/* colour-scheme swatches (the "color theme" picker) */
+.kschemes { display: flex; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+.kschemeb { width: 44px; height: 18px; border-radius: 5px; border: 1px solid var(--panel-border); cursor: pointer; padding: 0; overflow: hidden; }
+.kschemeb:hover { border-color: rgba(255,255,255,0.35); }
+.kschemeb.on { border-color: var(--cold-blue); box-shadow: 0 0 0 1px var(--cold-blue); }
+/* single-hue chip is a solid swatch; slightly narrower */
+.kschemeb.khue { width: 26px; }
+/* colour-theme chip = a strip of the palette's colours */
+.kschemeb.kpal { display: flex; }
+.kschemeb.kpal i { flex: 1; height: 100%; }
+.kadv[open] { display: flex; flex-direction: column; gap: 8px; }
+.khint { font-size: 10px; color: var(--muted); line-height: 1.45; }
+
+/* Structure families (Single / Multiple) */
+.kfams { display: flex; flex-direction: column; gap: 7px; margin-top: 3px; }
+.kfam { display: flex; flex-direction: column; gap: 3px; }
+.kfam-l { font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); opacity: 0.8; }
+
+/* icon segmented buttons (Structure / Representation / Aggregate / Operation) */
+.kseg { display: flex; gap: 4px; margin-top: 2px; }
+.ksegb { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 7px;
+  color: var(--muted); padding: 7px 2px 6px; cursor: pointer; transition: all .15s ease; font-family: var(--font-ui); }
+.ksegb i { font-style: normal; font-size: 14px; line-height: 1; }
+.ksegb span { font-size: 9px; letter-spacing: 0.02em; text-transform: none; }
+.ksegb:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.ksegb.on { color: #fff; border-color: rgba(125,167,255,0.55); background: rgba(125,167,255,0.14); }
+
+/* add buttons */
+.kaddrow { display: flex; gap: 6px; margin: 6px 0 2px; }
+.kadd { flex: 1; background: rgba(255,255,255,0.025); border: 1px dashed var(--panel-border); color: var(--muted);
+  font-size: 11px; font-weight: 600; padding: 8px 6px; border-radius: 8px; cursor: pointer; transition: all .15s ease; }
+.kadd:hover { background: rgba(255,255,255,0.05); color: var(--text); border-color: rgba(255,255,255,0.2); }
+.kaddgroup { width: 100%; margin-top: 6px; }
+.kaddlayer { align-self: flex-start; background: none; border: 1px dashed var(--panel-border); color: var(--muted);
+  font-size: 10.5px; padding: 4px 9px; border-radius: 7px; cursor: pointer; }
+.kaddlayer:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.knote { font-size: 10px; color: var(--muted); line-height: 1.55; margin-top: 11px; background: rgba(255,255,255,0.025);
+  border: 1px solid var(--panel-border); border-radius: 8px; padding: 8px 10px; }
+
+/* preset ⋯ menu (Reset / Save as) */
+.kmenu-btn { background: none; border: none; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; padding: 0 4px; border-radius: 5px; }
+.kmenu-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+.kmenu { display: flex; gap: 6px; padding: 6px 9px; border-bottom: 1px solid var(--panel-border); background: rgba(125,167,255,0.05); }
+.kmenu[hidden] { display: none; }
+.kmenu button { flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--panel-border); color: var(--text);
+  font-size: 10.5px; padding: 5px 6px; border-radius: 6px; cursor: pointer; }
+.kmenu button:hover { border-color: var(--cold-blue); color: #fff; }
+
+/* saved-preset rows (in-panel list, per dataset) */
+.ksaved { display: flex; flex-direction: column; gap: 5px; margin-bottom: 6px; }
+.ksaved-row { display: flex; align-items: center; gap: 7px; padding: 6px 8px; border: 1px solid var(--panel-border);
+  border-radius: 8px; background: rgba(255,255,255,0.025); font-size: 11.5px; }
+.ksaved-ic { opacity: 0.85; }
+.ksaved-name { flex: 1; color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ksaved-kind { font-family: var(--font-mono); font-size: 8px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.ksaved-add, .ksaved-del { background: none; border: none; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 3px; }
+.ksaved-add { color: var(--cold-blue); } .ksaved-add:hover { color: #fff; }
+.ksaved-del { color: var(--muted); } .ksaved-del:hover { color: var(--magenta); }
+
+/* Save-as name modal */
+.kmodal-ov { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: rgba(6,9,14,0.6); backdrop-filter: blur(4px); }
+.kmodal { width: 320px; max-width: 86vw; background: linear-gradient(180deg, rgba(18,23,34,0.98), rgba(11,15,24,0.98));
+  border: 1px solid var(--panel-border); border-radius: 12px; padding: 16px; box-shadow: 0 18px 50px rgba(0,0,0,0.5); }
+.kmodal-t { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 11px; }
+.kmodal-in { width: 100%; background: rgba(255,255,255,0.04); color: var(--text); border: 1px solid var(--panel-border);
+  border-radius: 7px; padding: 9px 10px; font-size: 13px; font-family: var(--font-ui); }
+.kmodal-in:focus { outline: none; border-color: var(--cold-blue); }
+.kmodal-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 13px; }
+.kmodal-btns button { border-radius: 7px; padding: 7px 14px; font-size: 12px; cursor: pointer; border: 1px solid var(--panel-border); }
+.kmodal-cancel { background: rgba(255,255,255,0.04); color: var(--muted); }
+.kmodal-ok { background: rgba(125,167,255,0.18); color: #fff; border-color: rgba(125,167,255,0.5); }
+
+/* transient confirmation toast (Save feedback) */
+.ktoast { position: fixed; left: 50%; bottom: 40px; transform: translate(-50%, 12px); z-index: 70;
+  background: rgba(125,167,255,0.16); border: 1px solid rgba(125,167,255,0.5); color: #eaf0ff;
+  font-size: 12px; padding: 9px 16px; border-radius: 9px; backdrop-filter: blur(14px);
+  opacity: 0; transition: opacity .25s ease, transform .25s ease; pointer-events: none; }
+.ktoast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Saved library popover from the left nav */
+.ksaved-pop { position: fixed; left: 68px; top: 96px; z-index: 55; width: 300px; max-height: 66vh; overflow-y: auto;
+  background: linear-gradient(180deg, rgba(18,23,34,0.98), rgba(11,15,24,0.98)); border: 1px solid var(--panel-border);
+  border-radius: 12px; padding: 12px; box-shadow: 0 18px 50px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 6px; }
+.ksaved-pop-t { font-size: 10px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 4px; }
+.ksaved-empty { font-size: 11px; color: var(--muted); line-height: 1.6; padding: 6px 2px; }
+
+/* legend */
+#legend { position: absolute; right: 16px; bottom: 16px; z-index: 5; background: linear-gradient(180deg, rgba(14,18,28,0.72), rgba(9,12,20,0.86));
+  border: 1px solid var(--panel-border); border-radius: 11px; padding: 10px 12px; backdrop-filter: blur(20px); min-width: 170px; max-width: 260px; }
+#legend:empty { display: none; }
+.klg-title { font-size: 9px; font-family: var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 7px; }
+.klg-row { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text); padding: 2px 0; }
+.klg-bar { width: 32px; height: 8px; border-radius: 3px; flex: none; }
+.klg-ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid; flex: none; }
+.klg-swatches { display: inline-flex; gap: 2px; flex: none; }
+.klg-f { color: var(--muted); font-style: italic; }

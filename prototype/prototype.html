@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- This page lives in prototype/ but its relative URLs (js/, data/, css/) are
+     resolved from the project root, so the shared Atlas data layer keeps working. -->
+<base href="../" />
+<title>Layer-Set Prototype · Seoul Data Atlas</title>
+<!-- Isolated prototype: does NOT load or modify the production dashboard. Reuses
+     only js/data.js (the shared Atlas data layer, read-only). -->
+<link href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" rel="stylesheet" />
+<link href="prototype/prototype.css" rel="stylesheet" />
+</head>
+<body>
+<div id="wrap">
+  <aside id="side">
+    <div id="setbar"></div>
+    <div id="cards"></div>
+  </aside>
+  <main id="pmap"><div id="legend"></div></main>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/deck.gl@9/dist.min.js"></script>
+<script>window.__cb = Date.now();
+  ["js/data.js", "js/prototype/model.js", "js/prototype/seed-sales.js", "js/prototype/preview.js", "js/prototype/panel.js"]
+    .forEach(function (s) { document.write('<script src="' + s + '?v=' + window.__cb + '"><\/script>'); });
+</script>
+<script>window.addEventListener("load", function () { bootPrototype().catch(function (e) { document.getElementById("cards").innerHTML = '<div class="pm-empty">Boot error: ' + e.message + '</div>'; console.error(e); }); });</script>
+</body>
+</html>

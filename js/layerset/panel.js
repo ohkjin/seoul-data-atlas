@@ -469,7 +469,9 @@
     _applySingle(dsId) {
       if (typeof Panels === "undefined" || typeof map === "undefined" || !map) { this.sync(); return; }
       const baseRep = (this._cfg(dsId) && this._cfg(dsId).baseRep) || "choropleth";
+      this._applying = true;
       Panels.applyRepresentation(dsId, baseRep);
+      this._applying = false;
       if (typeof exitTimeMode === "function") exitTimeMode();
       map.layerVar = {}; map.layerHeightVar = {};
       const c = this._compositeLayers(this._grpOf(dsId, this._curPage(dsId)).layers);
@@ -484,7 +486,9 @@
     _applyAcross(dsId) {
       if (typeof Panels === "undefined" || typeof map === "undefined" || !map) { this.sync(); return; }
       const g = this._grp[dsId].across;
+      this._applying = true;
       Panels.applyRepresentation(dsId, g.rep);   // sets sectorView + base allow-list
+      this._applying = false;
       map.layerVar = {}; map.layerHeightVar = {};
       const c = this._compositeLayers(g.layers);
       map.layers.boundary = true;
