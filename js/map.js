@@ -11,7 +11,7 @@
 
 // Zoomed further out than a typical city view so the whole layer stack —
 // including tall Skyline columns — is visible from a distance by default.
-const SEOUL_CENTER = { longitude: 126.991, latitude: 37.545, zoom: 9.75, pitch: 45, bearing: -14 };
+const SEOUL_CENTER = { longitude: 126.991, latitude: 37.545, zoom: 10.5, pitch: 45, bearing: -14 };
 const CARTO_DARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 // Additive-blend parameters (luma.gl v9 / deck.gl v9) for bloom-like glow.
@@ -151,7 +151,7 @@ class AtlasMap3D {
     // explicit minZoom alongside maxBounds — on a narrow container the two
     // conflict and MapLibre never fires 'load'. Padding gives fitting room.
     const [minx, miny, maxx, maxy] = Atlas.meta.bbox;
-    const padLng = (maxx - minx) * 0.35, padLat = (maxy - miny) * 0.35;
+    const padLng = (maxx - minx) * 3.0, padLat = (maxy - miny) * 5.2;
 
     this.map = new maplibregl.Map({
       container: this.containerId, style: CARTO_DARK,
@@ -163,7 +163,13 @@ class AtlasMap3D {
     const ambient = new deck.AmbientLight({ color: [200, 214, 255], intensity: 1.1 });
     const sun = new deck.DirectionalLight({ color: [255, 255, 255], intensity: 1.4, direction: [-1, -3, -1] });
     const point = new deck.PointLight({ color: [125, 167, 255], intensity: 1.5, position: [126.99, 37.4, 90000] });
-    this.lighting = new deck.LightingEffect({ ambient, sun, point });
+    // Two lighting rigs the user can toggle. FULL = directional sun + point for 3D
+    // modelling. FLAT = ambient-only (bright), which kills the specular glare that
+    // blows out extruded faces in top-view/2D. See setNaturalLight().
+    this._lightFull = new deck.LightingEffect({ ambient, sun, point });
+    this._lightFlat = new deck.LightingEffect({ ambient: new deck.AmbientLight({ color: [222, 230, 246], intensity: 2.4 }) });
+    this.naturalLight = true;
+    this.lighting = this._lightFull;
 
     // Overlaid (NOT interleaved): deck renders in its own canvas over the
     // basemap with its own depth buffer. Interleaved mode shares MapLibre's
@@ -437,12 +443,25 @@ class AtlasMap3D {
       const [r, g, b] = mixStops(RAMP_SEQUENTIAL, t);
       return [r, g, b, a];
     };
+    // Extrude by the day's value against a FIXED whole-period domain, so the
+    // choropleth rises/falls with the animation (elevation slider works in time
+    // mode too). A per-frame domain would make the tallest bar full-height every
+    // day and hide the temporal change that is the whole point of playback.
+    const [glo, ghi] = Atlas.timeVarDomain(this.timeVar);
+    const gspan = (ghi - glo) || 1;
+    const BASE = this._grain() === "dong" ? 55000 : 90000;
+    const elev = (v) => (Number.isFinite(v) ? Math.max(0, Math.min(1, (v - glo) / gspan)) * BASE * this.elevationScale : 0);
     return new deck.GeoJsonLayer({
       id: "time-choropleth", data: { type: "FeatureCollection", features: data },
-      pickable: true, stroked: false, filled: true, extruded: false,
+      pickable: true, stroked: false, filled: true, extruded: true,
+      material: { ambient: 0.55, diffuse: 0.7, shininess: 60, specularColor: [140, 170, 255] },
       getFillColor: (f) => color(f.properties.colorVal),
+      getElevation: (f) => elev(f.properties.colorVal),
       onClick: (info) => this._click(info), onHover: (info) => this._hover(info),
-      updateTriggers: { getFillColor: [this.timeVar, this.timeDayIndex, this.opacity, this._sig()] },
+      updateTriggers: {
+        getFillColor: [this.timeVar, this.timeDayIndex, this.opacity, this._sig()],
+        getElevation: [this.timeVar, this.timeDayIndex, this.elevationScale, this._sig()],
+      },
     });
   }
 
@@ -1514,6 +1533,13 @@ class AtlasMap3D {
   // Per-layer radius multiplier (on top of the common Radius slider).
   setLayerRadius(layer, v) { this.layerRadius[layer] = v; this.render(); }
   setElevationScale(v) { this.elevationScale = v; this.render(); }
+  // Swap the lighting rig. off → flat ambient-only (no specular glare in top-view).
+  setNaturalLight(on) {
+    this.naturalLight = !!on;
+    this.lighting = this.naturalLight ? this._lightFull : this._lightFlat;
+    if (this.overlay) this.overlay.setProps({ effects: [this.lighting] });
+    this.render();
+  }
   setRadiusScale(v) { this.radiusScale = v; this.render(); }
   setOpacity(v) { this.opacity = v; this.render(); }
   setGlow(v) { this.glow = v; this.render(); }

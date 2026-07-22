@@ -251,7 +251,11 @@ const DATASETS_META = {
 // own metric (DATASETS_META[id].map.key). `applyRepresentation` applies one and mirrors
 // it onto every left-panel control.
 const REP_TYPES = {
-  choropleth: { label: "Flat map",     layers: ["roads", "choropleth", "labels"], sliders: { elevation: 0.12, radius: 1.0, opacity: 1.0, glow: 1.0 } },
+  choropleth: { label: "Choropleth",   layers: ["roads", "choropleth", "labels"], sliders: { elevation: 0.12, radius: 1.0, opacity: 1.0, glow: 1.0 } },
+  // Purpose-built flat 2D map: top-down (pitch 0), no glow, elevation locked flat.
+  // Separate from `choropleth` so the 3D view can rise while this stays a clean 2D
+  // comparison surface. Sales `flat` is static (does NOT enter time playback).
+  flat:       { label: "Flat 2D",      layers: ["roads", "choropleth", "labels"], mode: "2d", sliders: { elevation: 0, radius: 1.0, opacity: 1.0, glow: 0.9 } },
   bars:       { label: "3D bars",      layers: ["boundary", "roads", "columns", "labels"], height: true, sliders: { elevation: 0.12, radius: 1.0, opacity: 0.95, glow: 1.0 } },
   points:     { label: "Glow points",  layers: ["boundary", "roads", "pointCore", "pointHalo", "labels"], sliders: { elevation: 0.12, radius: 1.0, opacity: 0.9, glow: 1.4 } },
   rings:      { label: "Rings",        layers: ["boundary"], sector: "rings", sliders: { elevation: 1.0, radius: 1.2, opacity: 0.85, glow: 1.3 } },
@@ -276,16 +280,16 @@ const REP_TYPES = {
 const DATASET_REPS = {
   // Static designs are listed alongside the time views so a dataset can be shown
   // without animating (applyRepresentation rejects any rep missing from this list).
-  weather:      ["heatfield", "compare", "choropleth", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  heatfeature:  ["heatfield", "compare", "choropleth", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  sales:        ["rings", 'choropleth', "radial", "columns", "dominant", "compare", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
+  weather:      ["heatfield", "compare", "choropleth", "flat", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
+  heatfeature:  ["heatfield", "compare", "choropleth", "flat", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
+  sales:        ["rings", 'choropleth', "flat", "radial", "columns", "dominant", "compare", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
   sectorprofile:["columns", "rings", "radial", "dominant"],
-  rhsi:         ["buildingmix", "choropleth", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  shap:         ["buildingmix", "signedcols", "columns", "divided",  "dominant", "rings", "radial", "choropleth", "bars", "points"],
-  context:      ["choropleth", "columns", "divided", "buildingmix", "dominant", "rings", "radial", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  mobility:     ["choropleth", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  salesfeature: ["choropleth", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  heatdays:     ["choropleth", "bars", "heatmap", "hexbin", "dotfield", "valuerings"],
+  rhsi:         ["buildingmix", "choropleth", "flat", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
+  shap:         ["buildingmix", "signedcols", "columns", "divided",  "dominant", "rings", "radial", "choropleth", "flat", "bars", "points"],
+  context:      ["choropleth", "flat", "columns", "divided", "buildingmix", "dominant", "rings", "radial", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
+  mobility:     ["choropleth", "flat", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
+  salesfeature: ["choropleth", "flat", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
+  heatdays:     ["choropleth", "flat", "bars", "heatmap", "hexbin", "dotfield", "valuerings"],
   atlas:        ["dashboard", "compare", "rings"],
   dongbase:     ["boundary"],
   geometry:     ["boundary"],

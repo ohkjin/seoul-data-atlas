@@ -614,6 +614,15 @@ function initControlPanel() {
       updateLegend();
     });
   });
+
+  // Natural-light toggle (not a map layer — swaps the deck LightingEffect). Off gives
+  // flat ambient-only shading so top-view / 2D isn't blown out by specular glare.
+  const lightBtn = document.getElementById("tb-light");
+  if (lightBtn) lightBtn.addEventListener("click", () => {
+    const on = !map.naturalLight;
+    map.setNaturalLight(on);
+    lightBtn.classList.toggle("on", on);
+  });
   syncToolbar();
 
   // Elevation / Radius / Opacity / Glow are owned by the Layer-Set Appearance section
@@ -696,6 +705,8 @@ function syncToolbar() {
   document.querySelectorAll("#map-toolbar button[data-toolbar-layer]").forEach((btn) => {
     btn.classList.toggle("on", !!map.layers[btn.dataset.toolbarLayer]);
   });
+  const lightBtn = document.getElementById("tb-light");
+  if (lightBtn) lightBtn.classList.toggle("on", map.naturalLight !== false);
 }
 
 // Set the glow (3D bloom) and reflect it on the slider + read-out.

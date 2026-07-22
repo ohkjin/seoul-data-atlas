@@ -156,6 +156,7 @@
           <button data-toolbar-layer="boundary" class="on">Boundary</button>
           <button data-toolbar-layer="roads" class="on">Road Glow</button>
           <button data-toolbar-layer="buildings">Buildings</button>
+          <button data-map-light id="tb-light" class="on" title="Natural light — turn off to remove glare in top-view">Light</button>
           <div class="tb-sep"></div>
           <button data-toolbar-layer="nature" title="Parks &amp; water (OSM)">Nature</button>
           <button data-toolbar-layer="transit" title="Subway &amp; bus (OSM)">Transit</button>
@@ -284,49 +285,77 @@
         administrative dongs.
       </p>
 
-      <!-- TEAM — fill / edit the names between the <dd> … </dd> tags below. -->
+      <!-- ===== OLD team (role → name grouped) — kept inert for reference. Safe to delete. ===== -->
+      <template id="credits-old-team">
+        <section class="credits-people">
+          <h2 class="credits-h">Team</h2>
+          <ul class="credits-team">
+            <li><span class="ct-name">Yoonjin Yoon</span><span class="ct-role">Principal Investigator</span></li>
+            <li><span class="ct-name">Keonhee Jang</span><span class="ct-role">Research &amp; Development</span></li>
+            <li><span class="ct-name">Namwoo Kim</span><span class="ct-role">Research</span></li>
+            <li><span class="ct-name">Minwoo Jeong</span><span class="ct-role">Research</span></li>
+            <li><span class="ct-name">Jihyeon Ohk</span><span class="ct-role">Design &amp; Development</span></li>
+            <li><span class="ct-name">Youngwoo Kim</span><span class="ct-role">Design &amp; Development</span></li>
+          </ul>
+        </section>
+      </template>
+
+      <!-- TEAM — one person per line: <span class="ct-name">Name</span><span class="ct-role">Role</span>.
+           To link a name: <span class="ct-name"><a href="https://…">Name</a></span>. -->
       <section class="credits-people">
-        <h2 class="credits-h">Team</h2>
-        <dl class="credits-roles">
-          <div class="cr-row"><dt>Principal Investigator</dt><dd>Yoonjin Yoon</dd></div>
-          <div class="cr-row"><dt>Coordination</dt><dd>Keonhee Jang</dd></div>
-          <div class="cr-row"><dt>Research</dt><dd>Keonhee Jang · Namwoo Kim · Minwoo Jeong</dd></div>
-          <div class="cr-row"><dt>Visualization</dt><dd>Jihyeon Ohk</dd></div>
-          <div class="cr-row"><dt>Website</dt><dd>Jihyeon Ohk · Youngwoo Kim</dd></div>
-          <div class="cr-row"><dt>Production</dt><dd>Youngwoo Kim</dd></div>
-        </dl>
+      <h2 class="credits-h">Team</h2>
+      <dl class="credits-roles">
+        <div class="cr-row"><dt>Principal Investigator</dt><dd>Yoonjin Yoon</dd></div>
+        <div class="cr-row"><dt>Research</dt><dd>Keonhee Jang · Namwoo Kim · Minwoo Jeong</dd></div>
+        <div class="cr-row"><dt>Design &amp; Development</dt><dd>Jihyeon Ohk · Youngwoo Kim · Keonhee Jang</dd></div>
+      </dl>
       </section>
 
-      <div class="credits-cols">
-        <section class="credits-block">
-          <h2 class="credits-h">Data Sources</h2>
-          <ul>
-            <li><span class="cr-name">Seoul AI Foundation</span></li>
-            <li><span class="cr-name">Korea Meteorological Administration (KMA)</span></li>
-            <li><span class="cr-name">Seoul Open Data Plaza</span></li>
-            <li><span class="cr-name">Seoul Metro · EGIS · MOLIT</span></li>
-            <li><span class="cr-name">© OpenStreetMap contributors (ODbL)</span></li>
-          </ul>
-        </section>
+      <!-- LOGOS — 4 partner slots, each a link wrapping a logo image.
+           To wire one up: (1) set href to the partner site, (2) drop the logo file in
+           assets/logos/ and point <img src> at it. Until the image exists the <img>
+           fails to load and the text placeholder shows instead (onerror fallback). -->
+      <section class="credits-logos-wrap">
+        <h2 class="credits-h">Partners</h2>
+        <div class="credits-logos">
+          <a class="credit-logo credit-logo--lg" href="https://spacetime.kaist.ac.kr/" target="_blank" rel="noopener" aria-label="연구실 (Lab)">
+            <img src="assets/logos/stil_white.png" alt="연구실 Lab" onerror="this.remove()">
+            <span class="logo-ph">연구실<br>Lab</span>
+          </a>
+          <!-- KUAI is a black logo → force white with the "mono" class. Other slots get
+               white-version files, so they stay filter-free. -->
+          <a class="credit-logo mono" href="https://urban.kaist.ac.kr/" target="_blank" rel="noopener" aria-label="연구소 (Institute)">
+            <img src="assets/logos/KUAI.webp" alt="연구소 Institute" onerror="this.remove()">
+            <span class="logo-ph">조직<br>Organization</span>
+          </a>
+          <!-- CAUS & SAIF are colored logos → white background chip so they read on the dark page. -->
+          <a class="credit-logo credit-logo--white" href="https://caus.kaist.ac.kr/" target="_blank" rel="noopener" aria-label="조직 (Organization)">
+            <img src="assets/logos/CAUS.png" alt="조직 Organization" onerror="this.remove()">
+            <span class="logo-ph">연구소<br>Institute</span>
+          </a>
+          <a class="credit-logo credit-logo--white" href="https://saif.or.kr/index" target="_blank" rel="noopener" aria-label="Seoul AI">
+            <img src="assets/logos/SAIF.png" alt="Seoul AI" onerror="this.remove()">
+            <span class="logo-ph">Seoul AI<br>Partner</span>
+          </a>
+        </div>
+      </section>
+
+      <!-- <div class="credits-cols">
 
         <section class="credits-block">
-          <h2 class="credits-h">Built With</h2>
+          <h2 class="credits-h">Contact</h2>
           <ul>
-            <li><span class="cr-name">MapLibre GL JS</span></li>
-            <li><span class="cr-name">deck.gl</span></li>
-            <li><span class="cr-name">Apache ECharts + ECharts GL</span></li>
-            <li><span class="cr-name">CARTO Dark Matter basemap</span></li>
+            <li><span class="cr-name">Homepage</span></li>
+            <li><span class="cr-name">Phone</span></li>
+            <li><span class="cr-name">Address</span></li>
           </ul>
         </section>
-      </div>
+      </div> -->
 
       <div class="credits-foot">
         <p>
-          Road and building geometry derived from OpenStreetMap via the Overpass API.
-          Values are exploratory research outputs, not operational estimates. Verify each
-          upstream dataset's licence and attribution before public reuse.
+          This research was supported by the Center for Advanced Urban Systems (CAUS) at the Korea Advanced Institute of Science and Technology (KAIST), funded by GS E&C, as part of the KRA 5.1 (Data Visualization Interactive Module) research task. This research was also supported by Seoul AI Foundation's 2025 Global Collaborative Research Program in AI.
         </p>
-        <p class="credits-copy">Seoul Data Atlas · © 2024 Urban AI Institute</p>
       </div>
     </div>
   </div>
