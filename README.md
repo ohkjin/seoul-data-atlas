@@ -2,7 +2,7 @@
 
 An interactive, map-first atlas for exploring how extreme heat relates to retail activity across Seoul.
 
-Seoul Data Atlas combines the **Urban Heat / Urban Sales (UHUS)** datasets into a dark, three-dimensional geospatial dashboard. It lets users move between Seoul, district (`gu`), and neighborhood (`dong`) views; compare hot-day and mild-day retail behavior; inspect the Retail Heat-Sensitivity Index (RHSI); explore urban-context variables; and animate daily temperature and sales through 2024.
+Seoul Data Atlas combines the [**Urban Heat / Urban Sales (UHUS)** datasets](https://github.com/urban-ai-institute/kra45-climate-risk-commercial-resilience#kra45-climate-risk-commercial-resilience) into a dark, three-dimensional geospatial dashboard. It lets users move between Seoul, district (`gu`), and neighborhood (`dong`) views; compare hot-day and mild-day retail behavior; inspect the Retail Heat-Sensitivity Index (RHSI); explore urban-context variables; and animate daily temperature and sales through 2024.
 
 > Status: research prototype. The current release contains one active dataset, **Retail Heat Sensitivity**, covering all 25 Seoul districts and 422 administrative dongs.
 
