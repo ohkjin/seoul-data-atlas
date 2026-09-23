@@ -98,6 +98,13 @@
             <button data-mode="3d" class="active">3D</button>
             <button data-mode="2d">2D</button>
           </div>
+          <div class="mc-title">BLEND</div>
+          <select class="mc-select" id="mc-blend" title="How the glow layers composite">
+            <option value="normal">Normal</option>
+            <option value="additive" selected>Additive</option>
+            <option value="screen">Screen</option>
+            <option value="subtractive">Subtractive</option>
+          </select>
           <!-- PRESETS removed: they overwrote map.layers wholesale, clobbering whatever the
                Layer-Set editor had composited (and left the editor showing stale layers).
                The Layer-Set preset pages + Save/Reset supersede them.

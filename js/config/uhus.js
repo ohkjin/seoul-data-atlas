@@ -110,27 +110,45 @@ const DATASETS_META = {
 const DATASET_REPS = {
   // Static designs are listed alongside the time views so a dataset can be shown
   // without animating (applyRepresentation rejects any rep missing from this list).
-  weather:      ["heatfield", "compare", "choropleth", "flat", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  heatfeature:  ["heatfield", "compare", "choropleth", "flat", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  sales:        ["rings", 'choropleth', "flat", "radial", "columns", "dominant", "compare", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
+  weather:      ["heatfield", "compare", "choropleth", "flat", "bars", "points", "plainpoints", "bubble", "heatmap", "hexbin", "dotfield", "valuerings"],
+  heatfeature:  ["heatfield", "compare", "choropleth", "flat", "bars", "points", "plainpoints", "bubble", "heatmap", "hexbin", "dotfield", "valuerings"],
+  sales:        ["rings", 'choropleth', "flat", "radial", "columns", "dominant", "compare", "bars", "points", "plainpoints", "bubble", "heatmap", "hexbin", "dotfield", "valuerings"],
   sectorprofile:["columns", "rings", "radial", "dominant"],
-  rhsi:         ["buildingmix", "choropleth", "flat", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  shap:         ["buildingmix", "signedcols", "columns", "divided",  "dominant", "rings", "radial", "choropleth", "flat", "bars", "points"],
-  context:      ["choropleth", "flat", "columns", "divided", "buildingmix", "dominant", "rings", "radial", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  mobility:     ["choropleth", "flat", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  salesfeature: ["choropleth", "flat", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"],
-  heatdays:     ["choropleth", "flat", "bars", "heatmap", "hexbin", "dotfield", "valuerings"],
+  rhsi:         ["buildingmix", "choropleth", "flat", "bars", "points", "plainpoints", "heatmap", "hexbin", "dotfield", "valuerings"],
+  shap:         ["buildingmix", "signedcols", "columns", "divided",  "dominant", "rings", "radial", "choropleth", "flat", "bars", "points", "plainpoints"],
+  context:      ["choropleth", "flat", "columns", "divided", "buildingmix", "dominant", "rings", "radial", "bars", "points", "plainpoints", "bubble", "heatmap", "hexbin", "dotfield", "valuerings"],
+  mobility:     ["choropleth", "flat", "bars", "points", "plainpoints", "bubble", "heatmap", "hexbin", "dotfield", "valuerings"],
+  salesfeature: ["choropleth", "flat", "bars", "points", "plainpoints", "bubble", "heatmap", "hexbin", "dotfield", "valuerings"],
+  heatdays:     ["choropleth", "flat", "bars", "bubble", "heatmap", "hexbin", "dotfield", "valuerings"],
   atlas:        ["dashboard", "compare", "rings"],
   dongbase:     ["boundary"],
   geometry:     ["boundary"],
 };
 
-// "Compare" = show several variables at once, each on its own design. This is the
-// composite group; Single deliberately stays ONE variable.
-const comparePage = (measures) => ({ key: "comparison", label: "Compare", icon: "⇄", supported: true,
+// The four data structures, ordered by how many variables they hold:
+//   Single        1 variable                                          key "single"
+//   Compare (2–3) 2–3 variables, each on its own CHANNEL of one mark  key "channels"
+//   Compare (N)   N variables as N sub-marks (the sector glyphs)      key "across"
+//   Composite     N variables, each as its own layer FORM             key "comparison"
+// The page KEYS are load-bearing — LayerSetPanel._grp and the saved presets in
+// localStorage are keyed by them — so the labels below changed but the keys did not.
+
+// Composite: several variables at once, each on its own design. Single stays ONE variable.
+const comparePage = (measures) => ({ key: "comparison", label: "Composite", icon: "⊕", supported: true,
   group: true, measures: measures, hint: "Several variables at once — each on its own design." });
+// Single reads the same way in every dataset — one value, whatever its level — so the
+// hint is one constant rather than a per-dataset string that drifts out of sync.
+const SINGLE_HINT = "Total, a theme, or one feature.";
 const singlePage = (measures, hint) => ({ key: "single", label: "Single", icon: "▪", supported: true,
-  reps: DESIGN_REPS, measures: measures, hint: hint });
+  reps: DESIGN_REPS, measures: measures, hint: hint || SINGLE_HINT });
+// Compare (2–3): x/y are spent on geography, so a map mark has exactly three channels
+// left — hue, height and size. Selection is LOCKED to those three named slots instead
+// of being a free layer list, so a chosen variable can never be silently dropped.
+// Designs are ordered by how many channels they carry, so the first one is the richest.
+const CHANNEL_REPS = ["bubble", "bars", "choropleth", "plainpoints"];
+const channelPage = (measures, reps) => ({ key: "channels", label: "Compare (2–3)", icon: "◑", supported: true,
+  group: true, slots: true, reps: reps || CHANNEL_REPS, measures: measures,
+  hint: "Two or three variables — colour, height and size of one mark." });
 
 
 // Built-in preset pages per dataset. supported=false → shown but greyed (real map can't render yet).
@@ -144,16 +162,18 @@ const LS_DATASETS = {
     // just add a channel here rather than needing new UI.
     temporal: true, timeChannels: [{ label: "Sales", rep: "choropleth" }, { label: "Heat × Sales", rep: "compare" }],
     pages: [
-      singlePage("salesGroups", "One theme's heat-sensitivity."),
-      { key: "total", label: "Total", icon: "▣", supported: true, reps: DESIGN_REPS, measures: "salesTotal", hint: "All six themes summed — total card sales per dong." },
-      { key: "across", label: "Across", icon: "▤", supported: true, group: true, glyph: true, reps: ["rings", "columns", "radial", "dominant"], measures: "salesGroups", hint: "All six sales themes at once, as per-dong glyphs." },
-      { key: "within", label: "Within", icon: "⊞", supported: false, msg: "Per-group view is coming to the real map." },
+      // "Total" is not a structure, it is one of the values Single can show — the
+      // salesGroups measure list leads with it. "Within" (one group's variables) is
+      // just Compare (N) with a narrower variable set, so it has no page either.
+      singlePage("salesGroups"),
+      channelPage("salesGroups"),
+      { key: "across", label: "Compare (N)", icon: "▤", supported: true, group: true, glyph: true, reps: ["rings", "columns", "radial", "dominant"], measures: "salesGroups", hint: "All six sales themes at once, as per-dong glyphs." },
       comparePage("salesGroups"),
     ],
   },
   rhsi: {
     pages: [
-      { key: "single", label: "Single", icon: "▪", supported: true, reps: ["choropleth", "bars", "buildingmix", "points", "heatmap", "hexbin", "dotfield", "valuerings"], measures: "rhsiOnly", hint: "The retail heat-sensitivity index per dong." },
+      { key: "single", label: "Single", icon: "▪", supported: true, reps: ["choropleth", "bars", "buildingmix", "points", "plainpoints", "heatmap", "hexbin", "dotfield", "valuerings"], measures: "rhsiOnly", hint: SINGLE_HINT },
     ],
   },
   // Urban Features — composite group of urban-context variable-layers (same model as Sales Single).
@@ -161,56 +181,57 @@ const LS_DATASETS = {
     groupMeasures: "contextVars", baseRep: "choropleth",
     // divided + buildingmix are declared by this dataset and their renderers exist,
     // so they belong in the design list alongside the generic ones.
-    pages: [Object.assign(singlePage("contextVars", "One urban feature."),
+    pages: [Object.assign(singlePage("contextVars"),
               { reps: DESIGN_REPS.concat(["divided", "buildingmix"]) }),
-            comparePage("contextVars")],
+            channelPage("contextVars"), comparePage("contextVars")],
   },
   // SHAP — colours by RHSI (the value it explains); its "variables" are the signed feature
   // decomposition, driven by the app's own #shap-feature-filter, so no channel-layer group.
   shap: {
     pages: [
-      { key: "single", label: "Single", icon: "▪", supported: true, reps: ["buildingmix", "signedcols", "divided", "choropleth", "bars", "points"], measures: "rhsiOnly", hint: "RHSI coloured by what the model explains — include/exclude features below." },
+      { key: "single", label: "Single", icon: "▪", supported: true, reps: ["buildingmix", "signedcols", "divided", "choropleth", "bars", "points", "plainpoints"], measures: "rhsiOnly", hint: SINGLE_HINT },
     ],
   },
   // ---- temporal datasets: static day-counts + an animated time view (right-rail toggle) ----
   weather: {
     groupMeasures: "weatherVars", baseRep: "choropleth",
     temporal: true, timeChannels: [{ label: "Heat", rep: "heatfield" }, { label: "Heat × Sales", rep: "compare" }],
-    pages: [singlePage("weatherVars", "Hot / mild day counts — flip Time on for the day-by-day heat field."), comparePage("weatherVars")],
+    pages: [singlePage("weatherVars"), channelPage("weatherVars"), comparePage("weatherVars")],
   },
   heatfeature: {
     groupMeasures: "weatherVars", baseRep: "choropleth",
     temporal: true, timeChannels: [{ label: "Heat", rep: "heatfield" }, { label: "Heat × Sales", rep: "compare" }],
-    pages: [singlePage("weatherVars", "Heat-exposure day counts; Time plays the daily field."), comparePage("weatherVars")],
+    pages: [singlePage("weatherVars"), channelPage("weatherVars"), comparePage("weatherVars")],
   },
   // ---- remaining static feature datasets ----
   salesfeature: {
     groupMeasures: "salesShareVars", baseRep: "choropleth",
-    pages: [singlePage("salesShareVars", "Retail composition share per dong."), comparePage("salesShareVars")],
+    pages: [singlePage("salesShareVars"), channelPage("salesShareVars"), comparePage("salesShareVars")],
   },
   mobility: {
     groupMeasures: "mobilityVars", baseRep: "choropleth",
-    pages: [singlePage("mobilityVars", "Day/night population response — the strongest RHSI driver."), comparePage("mobilityVars")],
+    pages: [singlePage("mobilityVars"), channelPage("mobilityVars"), comparePage("mobilityVars")],
   },
   heatdays: {
     groupMeasures: "weatherVars", baseRep: "choropleth",
-    // heatdays does not declare "points", so offering it would be rejected by
+    // heatdays declares neither point rep, so offering them would be rejected by
     // applyRepresentation and silently fall back to choropleth.
-    pages: [Object.assign(singlePage("weatherVars", "Qualifying hot / mild day counts behind RHSI."),
-              { reps: DESIGN_REPS.filter((r) => r !== "points") }),
+    pages: [Object.assign(singlePage("weatherVars"),
+              { reps: DESIGN_REPS.filter((r) => r !== "points" && r !== "plainpoints") }),
+            channelPage("weatherVars", CHANNEL_REPS.filter((r) => r !== "plainpoints")),
             comparePage("weatherVars")],
   },
   // Sector Profile reads the same six sales themes as glyphs.
   sectorprofile: {
     groupMeasures: "salesGroups",
     pages: [
-      { key: "across", label: "Across", icon: "▤", supported: true, group: true, glyph: true, reps: ["columns", "rings", "radial", "dominant"], measures: "salesGroups", hint: "Sector profile as per-dong glyphs." },
+      { key: "across", label: "Compare (N)", icon: "▤", supported: true, group: true, glyph: true, reps: ["columns", "rings", "radial", "dominant"], measures: "salesGroups", hint: "Sector profile as per-dong glyphs." },
     ],
   },
   atlas: {
     temporal: true, timeChannels: [{ label: "Heat × Sales", rep: "compare" }],
     pages: [
-      { key: "single", label: "Single", icon: "▪", supported: true, reps: ["dashboard", "compare", "rings"], measures: "rhsiOnly", hint: "The combined atlas overview." },
+      { key: "single", label: "Single", icon: "▪", supported: true, reps: ["dashboard", "compare", "rings"], measures: "rhsiOnly", hint: SINGLE_HINT },
     ],
   },
   // ---- base / reference layers: boundary only, no metric ----
@@ -336,3 +357,28 @@ const DATASET_CATALOG = [
       tags: [["ft", "25 inputs"]], value: "Each model input's push on RHSI", src: "Model output" },
   ] },
 ];
+
+// ── Config consistency check ─────────────────────────────────────
+// applyRepresentation SILENTLY rejects any rep not in a dataset's DATASET_REPS
+// whitelist (it just keeps the previous view — no error). That "quiet failure" bit us
+// repeatedly: a Layer-Set page could offer a rep the whitelist forbade, or a rep could
+// reference a REP_TYPES entry that doesn't exist, and the picker looked fine while the
+// map ignored the click. This surfaces those mismatches at load time as console warns
+// (never throws), so a new representation can't drift silently again.
+(function validateConfig() {
+  if (typeof REP_TYPES === "undefined" || typeof DATASET_REPS === "undefined" || typeof LS_DATASETS === "undefined") return;
+  const warn = [];
+  Object.keys(DATASET_REPS).forEach((ds) => {
+    const wl = DATASET_REPS[ds] || [];
+    wl.forEach((r) => { if (!REP_TYPES[r]) warn.push(`${ds}: whitelist rep "${r}" has no REP_TYPES entry`); });
+    const cfg = LS_DATASETS[ds];
+    if (!cfg) return;
+    (cfg.pages || []).forEach((p) => (p.reps || []).forEach((r) => {
+      if (wl.indexOf(r) < 0) warn.push(`${ds}.${p.key}: offers rep "${r}" but it's not in DATASET_REPS — applyRepresentation will reject it`);
+    }));
+    (cfg.timeChannels || []).forEach((c) => {
+      if (wl.indexOf(c.rep) < 0) warn.push(`${ds} channel "${c.label}": rep "${c.rep}" not in DATASET_REPS`);
+    });
+  });
+  if (warn.length) console.warn("⚠ Atlas config mismatch (" + warn.length + "):\n  " + warn.join("\n  "));
+})();

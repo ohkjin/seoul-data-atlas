@@ -27,6 +27,33 @@ const ADDITIVE = {
 // rising out of its own region instead of a line pasted over the whole scene.
 const ADDITIVE_DEPTH = Object.assign({}, ADDITIVE, { depthTest: true });
 
+// Selectable blend modes (kepler-style, + Screen). The glow layers read the active one
+// via map._blend(); a rep declares its default in REP_TYPES[rep].blend. Factors are
+// luma.gl v9 names; depthTest is added per-call.
+const BLEND_MODES = {
+  // standard alpha-over — crisp, no bloom
+  normal: {
+    blendColorSrcFactor: "src-alpha", blendColorDstFactor: "one-minus-src-alpha", blendColorOperation: "add",
+    blendAlphaSrcFactor: "one", blendAlphaDstFactor: "one-minus-src-alpha", blendAlphaOperation: "add",
+  },
+  // brighten by accumulation (the original look)
+  additive: {
+    blendColorSrcFactor: "src-alpha", blendColorDstFactor: "one", blendColorOperation: "add",
+    blendAlphaSrcFactor: "src-alpha", blendAlphaDstFactor: "one", blendAlphaOperation: "add",
+  },
+  // 1-(1-s)(1-d): softer brighten that doesn't blow to white as fast as additive
+  screen: {
+    blendColorSrcFactor: "one", blendColorDstFactor: "one-minus-src-color", blendColorOperation: "add",
+    blendAlphaSrcFactor: "one", blendAlphaDstFactor: "one-minus-src-alpha", blendAlphaOperation: "add",
+  },
+  // darken where marks overlap — for light basemaps
+  subtractive: {
+    blendColorSrcFactor: "one", blendColorDstFactor: "one", blendColorOperation: "reverse-subtract",
+    blendAlphaSrcFactor: "one", blendAlphaDstFactor: "one", blendAlphaOperation: "add",
+  },
+};
+const BLEND_LABELS = { normal: "Normal", additive: "Additive", screen: "Screen", subtractive: "Subtractive" };
+
 function lerp(a, b, t) { return Math.round(a + (b - a) * t); }
 function mixStops(stops, t) {
   t = Math.max(0, Math.min(1, t));
@@ -57,8 +84,11 @@ const TEMP_HEAT_RANGE = [[35,58,145],[65,126,235],[57,220,232],[242,246,255],[25
 const TEMP_DISPLAY_DOMAIN = [5, 31];
 // Layers that encode a color metric / a height metric — used to build one legend
 // per distinct variable actually in play (mirrors VAR_LAYERS in js/app.js).
-const DATA_COLOR_LAYERS = ["pointCore", "pointHalo", "influence", "heatmap", "choropleth", "columns", "hexbin", "dotField"];
-const HEIGHT_LAYERS = ["choropleth", "columns", "hexbin"];
+const DATA_COLOR_LAYERS = ["pointCore", "pointHalo", "pointPlain", "bubble", "influence", "heatmap", "choropleth", "columns", "hexbin", "dotField"];
+const HEIGHT_LAYERS = ["choropleth", "columns", "hexbin", "bubble"];
+// Layers that can encode a third variable as mark size. Only point-like marks
+// qualify: deck's ColumnLayer/HexagonLayer take `radius` as a scalar prop.
+const SIZE_LAYERS = ["bubble", "pointPlain"];
 
 // Layer registry mirrors the night-GIS design doc's two-group model:
 //   Static Geo Layers (the physical night city)  — boundary (G9/G10), buildings (G4), roads (G6/G7)
@@ -69,11 +99,15 @@ const HEIGHT_LAYERS = ["choropleth", "columns", "hexbin"];
 // Default scene per doc §18.1: roads + weak boundary + point core (+ halo).
 const DEFAULT_LAYERS = {
   boundary: true, roads: true, buildings: false,
-  heatmap: false, pointCore: true, pointHalo: true, influence: false,
+  heatmap: false, pointCore: true, pointHalo: true, pointPlain: false, bubble: false, influence: false,
   choropleth: false, columns: false, hexbin: false, dotField: false, labels: false,
   nature: false, transit: false, amenity: false, // lazy OSM context layers (off by default)
 };
 const ALL_OFF = Object.fromEntries(Object.keys(DEFAULT_LAYERS).map((k) => [k, false]));
+// Bubble lift, in metres BEFORE elevationScale. Seoul is ~64km across at the default
+// camera, so anything much taller than this pushes the top bubbles off screen at
+// pitch 45 — the field has to read as a chart hovering over the city, not a tower.
+const BUBBLE_EXT = { city: 13000, dong: 7500 };
 const PRESETS = {
   "Night City": { ...ALL_OFF, roads: true, boundary: true, buildings: true, pointCore: true, pointHalo: true },
   "Heat Field": { ...ALL_OFF, roads: true, boundary: true, heatmap: true, influence: true },
@@ -120,12 +154,18 @@ class AtlasMap3D {
     // Per-layer metric overrides. Empty = follow the corresponding global value.
     this.layerVar = {};
     this.layerHeightVar = {};
+    // Size is the third visual channel (x/y are spent on geography, so hue, z and
+    // size are all a map mark has left). A falsy size key means "size follows the
+    // magnitude channel", which is what every layer did before the channel existed.
+    this.layerSizeVar = {};
+    this.sizeBy = null;
     // Per-layer radius multiplier (on top of the common Radius slider). 1 = default.
     this.layerRadius = {};
     this.elevationScale = 1;
     this.radiusScale = 1;
     this.opacity = 0.85;
     this.glow = 1;
+    this.blendMode = "additive";   // how the glow layers composite (see BLEND_MODES)
     this.autoRotate = false;
     this.selectedDongCode = null;
     // How a selected dong is highlighted: 'boundary' (glowing area/outline, default)
@@ -223,13 +263,14 @@ class AtlasMap3D {
   // In time mode the data ramp is always the warm sequential (dim→amber→red) so
   // temperature reads as literal heat regardless of the selected static metric.
   _activeRamp(key) { return this.timeMode ? RAMP_SEQUENTIAL : this._rampFor(Atlas.metricSpec(key || this.colorBy)); }
-  _sig() { return [this.scope.level, this.scope.guCode, this.scope.dongCode || "", this.grain || "", this.colorBy, this.heightBy, this.colorScheme || "", this.colorScaleMode, this.outlineWidth, JSON.stringify(this.layerVar), JSON.stringify(this.layerHeightVar), JSON.stringify(this.layerRadius), this.sectorView || "", this.shapFeatures ? this.shapFeatures.join(",") : "shap:all", this.timeMode ? "T" + this.timeVar + this.timeDayIndex : "S"].join("|"); }
+  _sig() { return [this.scope.level, this.scope.guCode, this.scope.dongCode || "", this.grain || "", this.colorBy, this.heightBy, this.colorScheme || "", this.colorScaleMode, this.outlineWidth, JSON.stringify(this.layerVar), JSON.stringify(this.layerHeightVar), JSON.stringify(this.layerSizeVar), this.sizeBy || "", JSON.stringify(this.layerRadius), this.sectorView || "", this.shapFeatures ? this.shapFeatures.join(",") : "shap:all", this.timeMode ? "T" + this.timeVar + this.timeDayIndex : "S"].join("|"); }
 
   // ---------- spatial grain (data-layer granularity, independent of camera) ----------
   _keyFor(layer, channel = "color") {
-    return channel === "height"
-      ? (this.layerHeightVar[layer] || this.heightBy)
-      : (this.layerVar[layer] || this.colorBy);
+    if (channel === "height") return this.layerHeightVar[layer] || this.heightBy;
+    // null (not a metric key) = unbound, so the caller falls back to magnitude.
+    if (channel === "size") return this.layerSizeVar[layer] || this.sizeBy || null;
+    return this.layerVar[layer] || this.colorBy;
   }
   // Effective radius scale for a layer = common Radius slider × the layer's own.
   _rmul(layer) { return this.radiusScale * (this.layerRadius[layer] != null ? this.layerRadius[layer] : 1); }
@@ -344,7 +385,7 @@ class AtlasMap3D {
     return this._grainRegions().map((r) => {
       const v = valueFor(r);
       const t = (v == null || !Number.isFinite(v)) ? null : Math.max(0, Math.min(1, (v - lo) / span));
-      return Object.assign({}, r, { value: v, colorT: t, magT: t == null ? 0 : t });
+      return Object.assign({}, r, { value: v, colorT: t, magT: t == null ? 0 : t, sizeT: t == null ? 0 : t });
     });
   }
 
@@ -406,7 +447,9 @@ class AtlasMap3D {
   // Per-region metric + color-t + magnitude-t (for point core/halo, rings, labels).
   // In time mode this becomes gu-level daily temperature (temperature is only
   // available per gu), year-normalized so summer glows hot and winter cools.
-  _regionData(colorKey, heightKey) {
+  // sizeKey is optional: omit it and sizeT mirrors magT, which is exactly what
+  // every caller got before size became a channel of its own.
+  _regionData(colorKey, heightKey, sizeKey) {
     if (this.timeMode) {
       const [lo, hi] = Atlas.timeVarDomain(this.timeVar);
       const span = (hi - lo) || 1;
@@ -414,19 +457,27 @@ class AtlasMap3D {
       return Atlas.guGeometry.map((g) => {
         const v = vals[g.gu_code];
         const t = v == null ? null : Math.max(0, Math.min(1, (v - lo) / span));
-        return { position: g.centroid, code: g.gu_code, name: g.gu_name, kind: "gu", value: v, colorT: t, magT: t == null ? 0 : t };
+        return { position: g.centroid, code: g.gu_code, name: g.gu_name, kind: "gu", value: v, colorT: t, magT: t == null ? 0 : t, sizeT: t == null ? 0 : t };
       });
     }
     const spec = Atlas.metricSpec(colorKey || this.colorBy);
     const hspec = Atlas.metricSpec(heightKey || this.heightBy);
+    const sspec = sizeKey ? Atlas.metricSpec(sizeKey) : null;
     const colorVals = Atlas.valuesForGrain(this._grain(), this.scope, spec);
     const heightVals = Atlas.valuesForGrain(this._grain(), this.scope, hspec);
     const colorScale = Atlas.colorScaleFromValues(colorVals, spec, this.colorScaleMode);
     const magScale = Atlas.magnitudeScaleFromValues(heightVals, hspec);
+    // Same rank-based scale as height, so Size reads the way Height reads.
+    const sizeScale = sspec
+      ? Atlas.magnitudeScaleFromValues(Atlas.valuesForGrain(this._grain(), this.scope, sspec), sspec)
+      : null;
     return this._grainRegions().map((r) => {
       const value = this._regionValue(r, spec);
       const heightValue = this._regionValue(r, hspec);
-      return { ...r, value, heightValue, colorT: colorScale(value), magT: magScale(heightValue) };
+      const magT = magScale(heightValue);
+      const sizeValue = sspec ? this._regionValue(r, sspec) : heightValue;
+      return { ...r, value, heightValue, sizeValue, colorT: colorScale(value), magT,
+        sizeT: sizeScale ? sizeScale(sizeValue) : magT };
     });
   }
 
@@ -559,7 +610,7 @@ class AtlasMap3D {
     const glowA = Math.round(70 * Math.min(1.6, this.glow));
     const core = new deck.ScatterplotLayer({
       id: "dots", data: this._dotsCache.data, pickable: false, stroked: false,
-      radiusUnits: "meters", radiusMinPixels: 1.3, radiusMaxPixels: 4, parameters: ADDITIVE,
+      radiusUnits: "meters", radiusMinPixels: 1.3, radiusMaxPixels: 4, parameters: this._blend(),
       getPosition: (d) => d.position, getRadius: 110 * this._rmul("dotField"),
       // density thinning: show a point only if its stable rank is under the dong's
       // magnitude — denser clusters = higher-value dongs.
@@ -568,7 +619,7 @@ class AtlasMap3D {
     });
     const halo = new deck.ScatterplotLayer({
       id: "dots-halo", data: this._dotsCache.data, pickable: false, stroked: false,
-      radiusUnits: "meters", radiusMinPixels: 2.5, radiusMaxPixels: 9, parameters: ADDITIVE,
+      radiusUnits: "meters", radiusMinPixels: 2.5, radiusMaxPixels: 9, parameters: this._blend(),
       getPosition: (d) => d.position, getRadius: 260 * this._rmul("dotField"),
       getFillColor: (d) => { if (d.rank >= 0.15 + d.density * 0.85) return [0, 0, 0, 0]; const c = color(d.colorVal); return [c[0], c[1], c[2], glowA]; },
       updateTriggers: { getFillColor: [this.colorBy, this.glow, this._sig()], getRadius: [this.radiusScale] },
@@ -581,7 +632,7 @@ class AtlasMap3D {
     const data = { type: "FeatureCollection", features };
     const line = (id, width, rgba) => new deck.GeoJsonLayer({
       id, data, pickable, stroked: true, filled: false, extruded: false,
-      parameters: ADDITIVE, lineWidthUnits: "pixels", getLineWidth: width, lineWidthMinPixels: width,
+      parameters: this._blend(), lineWidthUnits: "pixels", getLineWidth: width, lineWidthMinPixels: width,
       getLineColor: rgba,
       onClick: pickable ? (info) => this._click(info) : undefined,
       onHover: pickable ? (info) => this._hover(info) : undefined,
@@ -705,7 +756,7 @@ class AtlasMap3D {
     // Constant stroke width regardless of value (notes): a thin bright core ring
     // plus a faint wider *decorative* bloom pass (not value-encoded).
     const ring = (id, width, alpha) => new deck.PathLayer({
-      id, data, pickable: false, parameters: ADDITIVE,
+      id, data, pickable: false, parameters: this._blend(),
       widthUnits: "pixels", widthMinPixels: width, widthMaxPixels: width,
       capRounded: true, jointRounded: true,
       getPath: (d) => {
@@ -855,7 +906,7 @@ class AtlasMap3D {
       data.push({ position: r.position, radius: (minR + Math.pow(nv, 1.3) * step * (1 + i * 0.22)) * this._rmul("salesRings"), rgb: colors[i] });
     } });
     const ring = (id, width, alpha) => new deck.PathLayer({
-      id, data, pickable: false, parameters: ADDITIVE, widthUnits: "pixels",
+      id, data, pickable: false, parameters: this._blend(), widthUnits: "pixels",
       widthMinPixels: width, widthMaxPixels: width, capRounded: true, jointRounded: true,
       getPath: (d) => this._ringPath(d.position, d.radius), getWidth: width,
       getColor: (d) => [d.rgb[0], d.rgb[1], d.rgb[2], Math.round(alpha * Math.min(1.35, this.glow))],
@@ -875,7 +926,7 @@ class AtlasMap3D {
       data.push({ source: r.position, target: this._geoOffset(r.position, 55 + nv * maxLen, angle), rgb: colors[i] });
     } });
     const line = (id, width, alpha) => new deck.LineLayer({
-      id, data, pickable: false, parameters: ADDITIVE, widthUnits: "pixels", widthMinPixels: width, getWidth: width,
+      id, data, pickable: false, parameters: this._blend(), widthUnits: "pixels", widthMinPixels: width, getWidth: width,
       getSourcePosition: (d) => d.source, getTargetPosition: (d) => d.target,
       getColor: (d) => [d.rgb[0], d.rgb[1], d.rgb[2], Math.round(alpha * Math.min(1.35, this.glow))],
       updateTriggers: { getTargetPosition: [this.timeDayIndex, this.radiusScale, this._sig()], getColor: [this.glow, this._sig()] },
@@ -1170,7 +1221,7 @@ class AtlasMap3D {
   // True when the active representation extrudes regions (choropleth/columns/3D
   // sectors), so the label stem must clear the bar's top rather than the ground.
   _isExtruded() {
-    return !!(this.layers.choropleth || this.layers.columns
+    return !!(this.layers.choropleth || this.layers.columns || this.layers.bubble
       || ["columns", "signedcols", "radial", "buildingmix"].includes(this.sectorView));
   }
   // Max top (metres, BEFORE elevationScale) of whatever the active representation
@@ -1180,6 +1231,9 @@ class AtlasMap3D {
   // is why Buildings labels sat ~200x above the skyline.
   _labelHeightScale() {
     const drilled = this._grain() === "dong";
+    // Bubbles own their own vertical scale; share the exact constant so a label can
+    // never disagree with the bubble it belongs to.
+    if (this.layers.bubble && !this.sectorView) return this._bubbleExt();
     switch (this.sectorView) {
       case "buildingmix": return 210 * 1.8;                   // _buildingMixLayers getElevation cap
       case "signedcols":  return drilled ? 1500 : 3400;        // stacks normalised to `unit`
@@ -1263,14 +1317,14 @@ class AtlasMap3D {
       getSourcePosition: (d) => [d.position[0], d.position[1], 0],
       getTargetPosition: (d) => [d.position[0], d.position[1], this._labelStemTop(d)],
       getColor: [226, 236, 250, Math.round(150 * glow)],
-      widthUnits: "pixels", getWidth: 1.2, parameters: ADDITIVE_DEPTH,
+      widthUnits: "pixels", getWidth: 1.2, parameters: this._blend(true),
       updateTriggers: { getSourcePosition: [this._sig()], getTargetPosition: [this._sig(), this.elevationScale], getColor: [this.glow] },
     });
     const dots = new deck.ScatterplotLayer({
       id: "label-anchors", data, pickable: false,
       getPosition: (d) => [d.position[0], d.position[1], this._labelStemTop(d)],
       radiusUnits: "pixels", getRadius: 1.8, getFillColor: [236, 244, 255, Math.round(220 * glow)],
-      parameters: ADDITIVE_DEPTH, billboard: true,
+      parameters: this._blend(true), billboard: true,
       updateTriggers: { getPosition: [this._sig(), this.elevationScale], getFillColor: [this.glow] },
     });
     const text = new deck.TextLayer({
@@ -1295,6 +1349,62 @@ class AtlasMap3D {
     return [stems, dots, text];
   }
 
+  // ---------- Bubble field (Compare 2–3: hue × height × size on ONE mark) ----------
+  // x/y are spent on geography, so a map mark has exactly three channels left. This
+  // draws the Mathematica-style 3D bubble chart: a translucent disc lifted by the
+  // height variable, radius from the size variable, hue from the colour variable,
+  // plus a ground dot that says WHERE it is and a thin drop line joining the two.
+  _bubbleExt() { return BUBBLE_EXT[this._grain() === "dong" ? "dong" : "city"]; }
+  _bubbleLayer() {
+    const key = this._keyFor("bubble");
+    const heightKey = this._keyFor("bubble", "height");
+    const sizeKey = this._keyFor("bubble", "size");
+    const ramp = this._activeRamp(key);
+    const rows = this._regionData(key, heightKey, sizeKey).filter((r) => r.colorT != null);
+    const EXT = this._bubbleExt();
+    const FLOOR = EXT * 0.06;          // a zero-height bubble still clears its own ground dot
+    const top = (d) => (d.magT || 0) * EXT * this.elevationScale + FLOOR;
+    const glow = Math.min(1.4, this.glow);
+    // The whole look rests on overlaps DARKENING, which needs a real alpha — so unlike
+    // the plain points (fixed 0.8) this honours the Opacity slider.
+    const alpha = Math.round(Math.max(0.15, Math.min(0.9, this.opacity)) * 255);
+    // Drop lines read as a forest past a few dozen regions, and would double up with
+    // the label stems. On for seoul/gu and for a drilled gu's ~15 dongs; off for all 422.
+    const showDrops = this._grain() !== "dong" || rows.length <= 40;
+    const drops = new deck.LineLayer({
+      id: "bubble-drops", data: rows, pickable: false,
+      getSourcePosition: (d) => [d.position[0], d.position[1], 0],
+      getTargetPosition: (d) => [d.position[0], d.position[1], top(d)],
+      getColor: [190, 208, 235, Math.round(64 * glow)],
+      widthUnits: "pixels", getWidth: 1, parameters: this._blend(true),
+      updateTriggers: { getSourcePosition: [this._sig()], getTargetPosition: [this._sig(), this.elevationScale], getColor: [this.glow] },
+    });
+    const ground = new deck.ScatterplotLayer({
+      id: "bubble-ground", data: rows, pickable: false, stroked: false,
+      getPosition: (d) => [d.position[0], d.position[1], 0],
+      radiusUnits: "pixels", getRadius: 2.2,
+      getFillColor: [214, 228, 248, Math.round(160 * glow)],
+      parameters: this._blend(true),
+      updateTriggers: { getPosition: [this._sig()], getFillColor: [this.glow] },
+    });
+    const bubbles = new deck.ScatterplotLayer({
+      id: "bubble", data: rows, pickable: false, stroked: false, billboard: true,
+      radiusUnits: "meters", radiusMinPixels: 3, radiusMaxPixels: 64,
+      getPosition: (d) => [d.position[0], d.position[1], top(d)],
+      // Same sqrt shape as the point layers so Bubble and Points rank a variable alike;
+      // the constants are larger because bubbles are the only mark on screen.
+      getRadius: (d) => (300 + Math.sqrt(d.sizeT || 0) * 1250) * this._rmul("bubble"),
+      getFillColor: (d) => { const [r, g, b] = mixStops(ramp, d.colorT); return [r, g, b, alpha]; },
+      parameters: this._blend(true),
+      updateTriggers: {
+        getPosition: [this._sig(), this.elevationScale],
+        getRadius: [this._sig(), this.radiusScale],
+        getFillColor: [this._sig(), this.opacity, this.glow],
+      },
+    });
+    return showDrops ? [drops, ground, bubbles] : [ground, bubbles];
+  }
+
   // ---------- Temporal Data Layers: T1 point core + T2 point halo ----------
   // The doc's central mechanism: one glowing point per region whose brightness
   // and size encode the metric magnitude and whose hue encodes its value —
@@ -1306,7 +1416,7 @@ class AtlasMap3D {
     const ramp = this._activeRamp(key);
     const data = this._regionData(key, heightKey).filter((r) => r.colorT != null);
     return new deck.ScatterplotLayer({
-      id: "point-core", data, pickable: false, stroked: false, parameters: ADDITIVE,
+      id: "point-core", data, pickable: false, stroked: false, parameters: this._blend(),
       radiusUnits: "meters", radiusMinPixels: 1.6, radiusMaxPixels: 11,
       getPosition: (d) => d.position,
       getRadius: (d) => (150 + Math.sqrt(d.magT) * 620) * this._rmul("pointCore"),
@@ -1321,13 +1431,37 @@ class AtlasMap3D {
       },
     });
   }
+  // Plain (non-glow) points — kepler.gl's Point layer defaults: solid-ish fill at
+  // ~0.8 opacity, no outline, radius scaled by value. NO additive blend, so points
+  // read cleanly over a busy basemap instead of blooming into one another.
+  _plainPointsLayer() {
+    const key = this._keyFor("pointPlain");
+    const heightKey = this._keyFor("pointPlain", "height");
+    // Flat points have no z, so their second channel is radius. Reading the size slot
+    // here makes Points a real colour × size mark; unbound, sizeT === magT and nothing
+    // about the existing Points representation changes.
+    const sizeKey = this._keyFor("pointPlain", "size");
+    const ramp = this._activeRamp(key);
+    const data = this._regionData(key, heightKey, sizeKey).filter((r) => r.colorT != null);
+    return new deck.ScatterplotLayer({
+      id: "point-plain", data, pickable: false, stroked: false,
+      radiusUnits: "meters", radiusMinPixels: 2.5, radiusMaxPixels: 16,
+      getPosition: (d) => d.position,
+      getRadius: (d) => (150 + Math.sqrt(d.sizeT) * 620) * this._rmul("pointPlain"),
+      getFillColor: (d) => { const [r, g, b] = mixStops(ramp, d.colorT); return [r, g, b, Math.round(0.8 * 255)]; },
+      updateTriggers: {
+        getFillColor: [this.colorBy, this._sig()],
+        getRadius: [this.colorBy, this.radiusScale, this._sig()],
+      },
+    });
+  }
   _pointHaloLayer() {
     const key = this._keyFor("pointHalo");
     const heightKey = this._keyFor("pointHalo", "height");
     const ramp = this._activeRamp(key);
     const data = this._regionData(key, heightKey).filter((r) => r.colorT != null);
     return new deck.ScatterplotLayer({
-      id: "point-halo", data, pickable: false, stroked: false, parameters: ADDITIVE,
+      id: "point-halo", data, pickable: false, stroked: false, parameters: this._blend(),
       radiusUnits: "meters", radiusMinPixels: 4, radiusMaxPixels: 48,
       getPosition: (d) => d.position,
       getRadius: (d) => (150 + Math.sqrt(d.magT) * 620) * this._rmul("pointHalo") * 4.5,
@@ -1379,10 +1513,10 @@ class AtlasMap3D {
       return [
         new deck.ColumnLayer({ id: "beam", data: pt, diskResolution: 12, radius: 150, extruded: true,
           getPosition: (d) => d.position, getElevation: 105000,
-          getFillColor: [221, 232, 255, Math.round(120 * pulse * this.glow)], parameters: ADDITIVE, pickable: false }),
+          getFillColor: [221, 232, 255, Math.round(120 * pulse * this.glow)], parameters: this._blend(), pickable: false }),
         new deck.ScatterplotLayer({ id: "beam-base", data: pt, getPosition: (d) => d.position,
           getRadius: 620 * (0.9 + 0.1 * pulse), radiusUnits: "meters",
-          getFillColor: [200, 220, 255, Math.round(90 * pulse * this.glow)], parameters: ADDITIVE, pickable: false }),
+          getFillColor: [200, 220, 255, Math.round(90 * pulse * this.glow)], parameters: this._blend(), pickable: false }),
       ];
     }
     // 'boundary' (default): a soft additive area wash + a wide glow ring + a crisp
@@ -1391,9 +1525,9 @@ class AtlasMap3D {
     const data = { type: "FeatureCollection", features: [{ type: "Feature", geometry: geom.geometry, properties: {} }] };
     return [
       new deck.GeoJsonLayer({ id: "sel-fill", data, filled: true, stroked: false, extruded: false,
-        getFillColor: [130, 178, 255, Math.round(42 * pulse)], parameters: ADDITIVE, pickable: false }),
+        getFillColor: [130, 178, 255, Math.round(42 * pulse)], parameters: this._blend(), pickable: false }),
       new deck.GeoJsonLayer({ id: "sel-glow", data, filled: false, stroked: true, extruded: false,
-        getLineColor: [150, 190, 255, Math.round(150 * pulse)], lineWidthUnits: "pixels", getLineWidth: 7, parameters: ADDITIVE, pickable: false }),
+        getLineColor: [150, 190, 255, Math.round(150 * pulse)], lineWidthUnits: "pixels", getLineWidth: 7, parameters: this._blend(), pickable: false }),
       new deck.GeoJsonLayer({ id: "sel-line", data, filled: false, stroked: true, extruded: false,
         getLineColor: [228, 240, 255, 240], lineWidthUnits: "pixels", getLineWidth: 2, pickable: false }),
     ];
@@ -1409,7 +1543,7 @@ class AtlasMap3D {
     // otherwise the static layers would rebuild on every zoom step for nothing.
     const zoomKey = (this.layers.labels && this.map && this.map.getZoom)
       ? "z" + (Math.round(this.map.getZoom() * 2) / 2) : "";
-    const sig = [this._sig(), JSON.stringify(this.layers), this.elevationScale, this.radiusScale, this.opacity, this.glow, this.selectedDongCode, osmKey, zoomKey].join("#");
+    const sig = [this._sig(), JSON.stringify(this.layers), this.elevationScale, this.radiusScale, this.opacity, this.glow, this.selectedDongCode, this.blendMode, osmKey, zoomKey].join("#");
     if (this._staticCache && this._staticCache.sig === sig) return this._staticCache.layers;
     const L = this.layers;
     const layers = [...this._pickLayer()];
@@ -1452,6 +1586,8 @@ class AtlasMap3D {
     if (L.dotField) layers.push(...this._dotsLayer());
     if (L.pointHalo) layers.push(this._pointHaloLayer());
     if (L.pointCore) layers.push(this._pointCoreLayer());
+    if (L.pointPlain) layers.push(this._plainPointsLayer());
+    if (L.bubble) layers.push(...this._bubbleLayer());
     if (L.boundary) layers.push(...this._boundaryLayer());
     if (L.labels) layers.push(...this._labelsLayer());
     this._staticCache = { sig, layers };
@@ -1618,9 +1754,17 @@ class AtlasMap3D {
     else if (Atlas.metricSpec(key)) this.layerHeightVar[layer] = key;
     this.render();
   }
+  setLayerSizeVar(layer, key) {
+    if (!key || key === this.sizeBy) delete this.layerSizeVar[layer];
+    else if (Atlas.metricSpec(key)) this.layerSizeVar[layer] = key;
+    this.render();
+  }
   // "Unify" one visual channel without disturbing the other channel.
   unifyLayerColors(key) { if (key && Atlas.metricSpec(key)) this.colorBy = key; this.layerVar = {}; this.render(); }
   unifyLayerHeights(key) { if (key && Atlas.metricSpec(key)) this.heightBy = key; this.layerHeightVar = {}; this.render(); }
+  // Size is never unified from applyRepresentation — an unbound size means "follow
+  // the height magnitude", which is the pre-channel behaviour every other rep wants.
+  unifyLayerSizes(key) { this.sizeBy = (key && Atlas.metricSpec(key)) ? key : null; this.layerSizeVar = {}; this.render(); }
   unifyLayerVars(key) { this.unifyLayerColors(key); }
   // Per-layer radius multiplier (on top of the common Radius slider).
   setLayerRadius(layer, v) { this.layerRadius[layer] = v; this.render(); }
@@ -1646,6 +1790,17 @@ class AtlasMap3D {
   setRadiusScale(v) { this.radiusScale = v; this.render(); }
   setOpacity(v) { this.opacity = v; this.render(); }
   setGlow(v) { this.glow = v; this.render(); }
+  // Blend parameters for the active mode (+ optional depth test). Glow layers call this
+  // instead of a fixed ADDITIVE so the whole scene switches composite mode together.
+  _blend(depth) {
+    return Object.assign({ blend: true, depthTest: !!depth }, BLEND_MODES[this.blendMode] || BLEND_MODES.additive);
+  }
+  setBlendMode(mode) {
+    if (!BLEND_MODES[mode] || mode === this.blendMode) return;
+    this.blendMode = mode;
+    this._staticCache = null;   // parameters are baked into cached layers
+    this.render();
+  }
   setAutoRotate(on) { this.autoRotate = on; }
   selectDong(code) { this.selectedDongCode = code; this._pulse = 0; this.render(); }
 
@@ -1715,6 +1870,22 @@ class AtlasMap3D {
       if (!spec) return;
       const [min, max] = Atlas.metricDomain(this.scope, spec);
       blocks.push({ channel: "height", label: spec.label, domain: { min, max }, layerKeys });
+    });
+
+    // ---- size blocks. Only emitted when a size variable is actually bound: an
+    // unbound size tracks height, and printing it again would read as two variables.
+    const sizeGroups = new Map();
+    SIZE_LAYERS.forEach((l) => {
+      if (!this.layers[l]) return;
+      const key = this.layerSizeVar[l] || this.sizeBy;
+      if (!key) return;
+      (sizeGroups.get(key) || sizeGroups.set(key, []).get(key)).push(l);
+    });
+    sizeGroups.forEach((layerKeys, key) => {
+      const spec = Atlas.metricSpec(key);
+      if (!spec) return;
+      const [min, max] = Atlas.metricDomain(this.scope, spec);
+      blocks.push({ channel: "size", label: spec.label, domain: { min, max }, layerKeys });
     });
 
     // ---- sector view active → the right key for how it's coloured ----

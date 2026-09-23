@@ -246,6 +246,10 @@ const Panels = {
       m.unifyLayerColors(color);
       m.unifyLayerHeights(color);
     }
+    // Size has no unified value — a single-variable view simply has no size channel, so
+    // switching representation drops any stale binding. The one structure that owns a
+    // size channel (Compare 2–3) re-applies its own AFTER this call returns.
+    if (m.layerSizeVar) { m.layerSizeVar = {}; m.sizeBy = null; }
 
     // Grain is owned by the Granularity control, not the representation. Sector glyphs
     // (rings/columns/dominant/…) render at gu AND dong via _sectorRegions, so we must NOT
@@ -270,6 +274,12 @@ const Panels = {
 
     // slider tuning (syncs the slider inputs + read-outs)
     if (rt.sliders) this._applyView(rt.sliders);
+
+    // blend mode: the representation declares its default composite; omitted = additive.
+    if (typeof m.setBlendMode === "function") {
+      m.setBlendMode(rt.blend || "additive");
+      const bl = document.getElementById("mc-blend"); if (bl) bl.value = m.blendMode;
+    }
 
     // camera mode: 2D reads flat, so kill the bloom/glow (remember it for a 3D restore)
     this._setModeUI(mode);

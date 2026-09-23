@@ -739,6 +739,8 @@ const FOOTER_LAYER_META = {
   heatmap:   { c: "#78a8ff", name: "Heatmap", role: "weather" },
   pointCore: { c: "#9f8cff", name: "Point Core", role: "index" },
   pointHalo: { c: "#9f8cff", name: "Point Halo", role: "index" },
+  pointPlain:{ c: "#9f8cff", name: "Points", role: "metric" },
+  bubble:    { c: "#7fd4ff", name: "Bubble Field", role: "metric" },
   influence: { c: "#ffb86b", name: "Value Rings", role: "metric" },
   choropleth:{ c: "#9f8cff", name: "RHSI Choropleth", role: "index" },
   columns:   { c: "#ffb86b", name: "3D Columns", role: "metric" },
@@ -900,6 +902,13 @@ function initControlPanel() {
       refreshVariableDropdowns();
     });
   });
+
+  // Blend-mode dropdown — global composite for the glow layers. A representation sets a
+  // default (panels.applyRepresentation); this lets the user override live.
+  const blendSel = document.getElementById("mc-blend");
+  if (blendSel) blendSel.addEventListener("change", (e) => {
+    if (map && map.setBlendMode) map.setBlendMode(e.target.value);
+  });
 }
 
 // The layer checkboxes are gone (the Layer-Set editor owns composition), but callers
@@ -1036,6 +1045,14 @@ function legendBlockHtml(b) {
       <div class="lg-var">Height <span class="lg-up">↑</span> ${b.label}</div>
       ${legendChips(b.layerKeys)}
       <div class="lg-hglyph"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="lg-ends"><span>${fmtLegendNum(b.domain.min)}</span><span>${fmtLegendNum(b.domain.max)}</span></div>
+    </div>`;
+  }
+  if (b.channel === "size") {
+    return `<div class="lg-block">
+      <div class="lg-var">Size <span class="lg-up">◯</span> ${b.label}</div>
+      ${legendChips(b.layerKeys)}
+      <div class="lg-sglyph"><i></i><i></i><i></i></div>
       <div class="lg-ends"><span>${fmtLegendNum(b.domain.min)}</span><span>${fmtLegendNum(b.domain.max)}</span></div>
     </div>`;
   }

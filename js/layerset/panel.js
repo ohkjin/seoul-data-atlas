@@ -74,7 +74,11 @@
         const g = {};
         (this._cfg(dsId).pages || []).forEach((p) => {
           if (!p.group) return;
-          g[p.key] = p.glyph ? { rep: (p.reps && p.reps[0]) || "rings", layers: [] } : { layers: [this._newLayer(dsId, "color", 0)] };
+          // A slots page holds a flat {color, height, size} object instead of a layer
+          // list — its variables are channels of ONE mark, not separate layers.
+          g[p.key] = p.slots ? this._newSlots(dsId)
+            : p.glyph ? { rep: (p.reps && p.reps[0]) || "rings", layers: [] }
+            : { layers: [this._newLayer(dsId, "color", 0)] };
         });
         this._grp[dsId] = g;
       }
@@ -103,11 +107,14 @@
         const rep = (typeof Panels !== "undefined") ? Panels.selectedRep : null;
         const measures = this._measures(active.measures);
         const scheme = this._appear[dsId].scheme;
+        const isSlots = !!(active.group && active.slots);
         const isAcross = !!(active.group && active.glyph);
-        const isSingle = !!(active.group && !active.glyph);
-        const isGroup = isSingle || isAcross;
+        const isSingle = !!(active.group && !active.glyph && !active.slots);
+        const isGroup = isSingle || isAcross || isSlots;
         let mainRows;
-        if (isSingle) {
+        if (isSlots) {
+          mainRows = this._slotEditorHTML(dsId, active.key);
+        } else if (isSingle) {
           mainRows = this._groupEditorHTML(dsId, active.key, "Layers · one variable each");
         } else if (isAcross) {
           mainRows = this._acrossEditorHTML(dsId);
@@ -122,8 +129,11 @@
         const saveLabel = activeKey.indexOf("saved:") === 0 ? "Update" : "Save as…";
         const isSaved = activeKey.indexOf("saved:") === 0;
         const actions = `<div class="ls-actions"><button class="ls-act" data-ls-save>${saveLabel}</button><button class="ls-act" data-ls-reset>Reset</button></div>`;
-        const nAcross = isAcross ? this._grpOf(dsId, active.key).layers.length : 0;
-        const gnote = isSingle ? "group of " + this._grpOf(dsId, active.key).layers.length
+        // A slots page has no `layers` array — reading it here used to throw.
+        const nAcross = isAcross ? (this._grpOf(dsId, active.key).layers || []).length : 0;
+        const nSlots = isSlots ? this._slotCount(dsId, active.key) : 0;
+        const gnote = isSlots ? nSlots + " channel" + (nSlots === 1 ? "" : "s")
+          : isSingle ? "group of " + (this._grpOf(dsId, active.key).layers || []).length
           : isAcross ? "glyph + " + nAcross + " layer" + (nAcross === 1 ? "" : "s") : "";
         // #1 section chrome + badges
         const head = `<span class="ls-badge s-${active.key}"><i>${active.icon || "▪"}</i>${active.label}</span>` +
@@ -153,6 +163,9 @@
       host.querySelectorAll("select[data-ls-lchan]").forEach((s) => s.onchange = () => this._setLayerField(dsId, s.dataset.lsLchan, "channel", s.value));
       host.querySelectorAll("[data-ls-lvar]").forEach((s) => s.onchange = () => this._setLayerField(dsId, s.dataset.lsLvar, "measure", s.value));
       host.querySelectorAll("[data-ls-ldel]").forEach((b) => b.onclick = () => this._removeLayer(dsId, b.dataset.lsLdel));
+      // Compare (2–3): the locked channel slots + its own design picker
+      host.querySelectorAll("[data-ls-slot]").forEach((s) => s.onchange = () => this._setSlot(dsId, s.dataset.lsSlot, s.value));
+      host.querySelectorAll("[data-ls-srep]").forEach((b) => b.onclick = () => this._setSlotRep(dsId, b.dataset.lsSrep));
       const addL = host.querySelector("[data-ls-addlayer]"); if (addL) addL.onclick = () => this._addLayer(dsId);
       host.querySelectorAll("[data-ls-theme]").forEach((b) => b.onclick = () => this._applyTheme(dsId, b.dataset.lsTheme));
       // #3 appearance controls
@@ -223,7 +236,9 @@
       // Variable / group picker. For a group page, list the active group's layers so you can
       // swap what each one shows without opening the full editor; otherwise a single dropdown.
       let measHTML = "";
-      if (active && active.group) {
+      if (active && active.group && active.slots) {
+        measHTML = `<div class="ls-row-l">Channels</div><div class="ls-layers">${this._slotRowsHTML(dsId, active.key)}</div>`;
+      } else if (active && active.group) {
         const grp = this._grpOf(dsId, active.key);
         const gm = this._measures(this._groupMeasures(dsId));
         if (grp && grp.layers && grp.layers.length && gm.length) {
@@ -255,6 +270,8 @@
       host.querySelectorAll("[data-ls-repval]").forEach((b) => b.onclick = () =>
         this.applyView(dsId, { pageKey: b.dataset.lsPrep, rep: b.dataset.lsRepval }));
       host.querySelectorAll("[data-ls-cvar]").forEach((s) => s.onchange = () => this._setLayerField(dsId, s.dataset.lsCvar, "measure", s.value));
+      host.querySelectorAll("[data-ls-slot]").forEach((s) => s.onchange = () => this._setSlot(dsId, s.dataset.lsSlot, s.value));
+      host.querySelectorAll("[data-ls-srep]").forEach((b) => b.onclick = () => this._setSlotRep(dsId, b.dataset.lsSrep));
       const sel = host.querySelector("[data-ls-measure]");
       if (sel) sel.onchange = () => this.applyView(dsId, { measure: sel.value });
     },
@@ -287,12 +304,91 @@
       return glyphRow + extra;
     },
     _setGlyph(dsId, rep) { this._grp[dsId].across.rep = rep; this._applyActive(dsId); },
+
+    // ---- Compare (2–3) = ONE mark, three locked channels ----
+    // x/y belong to geography, so hue, height and size are all a map mark has left.
+    // Fixed slots (rather than an add/remove list) make it impossible to pick a fourth
+    // variable that the mark would then silently drop.
+    _SLOTS: [{ key: "color", label: "Color", icon: "◍", none: false },
+             { key: "height", label: "Height", icon: "↕", none: true },
+             { key: "size", label: "Size", icon: "◯", none: true }],
+    _newSlots(dsId, pageKey) {
+      const m = this._measures(this._groupMeasures(dsId));
+      const page = this._builtin(dsId, pageKey || "channels") || {};
+      // Height defaults to a second variable so the page opens as a real two-channel
+      // mark instead of a flat sheet; size starts unbound and therefore tracks height.
+      return { rep: (page.reps && page.reps[0]) || "bubble",
+        color: (m[0] || {}).key || null, height: (m[1] || m[0] || {}).key || null, size: null };
+    },
+    // The design a slots page is really on. One resolver for the editor, the rail and
+    // _applySlots, so a preset saved without a rep (or with a stale one) can't leave
+    // the three surfaces disagreeing about which channels exist.
+    _slotRep(dsId, pageKey) {
+      const key = pageKey || this._curPage(dsId);
+      const page = this._builtin(dsId, key) || {};
+      const reps = page.reps || [];
+      const s = this._grpOf(dsId, key) || {};
+      return (s.rep && reps.includes(s.rep)) ? s.rep : (reps[0] || "bubble");
+    },
+    // Which channels the chosen design can actually carry (REP_TYPES.channels).
+    _repChannels(rep) {
+      const rt = (typeof REP_TYPES !== "undefined" && REP_TYPES[rep]) || {};
+      return rt.channels || ["color"];
+    },
+    _slotCount(dsId, pageKey) {
+      const s = this._grpOf(dsId, pageKey) || {};
+      const ch = this._repChannels(this._slotRep(dsId, pageKey));
+      return this._SLOTS.filter((S) => ch.includes(S.key) && s[S.key]).length;
+    },
+    _slotRowsHTML(dsId, pageKey) {
+      const s = this._grpOf(dsId, pageKey) || {};
+      const measures = this._measures(this._groupMeasures(dsId));
+      const ch = this._repChannels(this._slotRep(dsId, pageKey));
+      // Only the channels this design owns — a column cannot vary its radius, a flat
+      // point has no z, so offering those slots would be a control that does nothing.
+      return this._SLOTS.filter((S) => ch.includes(S.key)).map((S) => `<div class="ls-layer">
+        <span class="ls-cicon" title="${S.label}">${S.icon}</span>
+        <select class="ls-select ls-lvar" data-ls-slot="${S.key}" title="${S.label}">${
+          (S.none ? `<option value=""${!s[S.key] ? " selected" : ""}>— none —</option>` : "")
+          + measures.map((m) => `<option value="${m.key}"${m.key === s[S.key] ? " selected" : ""}>${m.label}</option>`).join("")
+        }</select></div>`).join("");
+    },
+    _slotEditorHTML(dsId, pageKey) {
+      const page = this._builtin(dsId, pageKey) || {};
+      const rep = this._slotRep(dsId, pageKey);
+      // Its own attribute, not [data-ls-rep]: that one routes to _applyPage, which is
+      // the non-group path and would unify the channels we are about to set.
+      const designRow = (page.reps && page.reps.length > 1)
+        ? `<div class="ls-row-l">Design</div><div class="ls-seg ls-seg-wrap">${page.reps.map((r) =>
+            `<button class="ls-b${r === rep ? " on" : ""}" data-ls-srep="${r}"><i>${REP_ICON[r] || "▦"}</i><span>${this._repLabel(r)}</span></button>`).join("")}</div>` : "";
+      const chans = this._repChannels(rep);
+      const note = chans.includes("size")
+        ? "Height “none” follows Color; Size “none” follows Height."
+        : chans.includes("height") ? "Height “none” follows Color."
+        : "Size “none” follows Color.";
+      return designRow + `<div class="ls-row-l">Channels · one variable each</div><div class="ls-layers">${this._slotRowsHTML(dsId, pageKey)}</div>`
+        + `<div class="ls-hint">${note}</div>`;
+    },
+    _setSlot(dsId, slot, val) {
+      const g = this._grpOf(dsId); if (!g) return;
+      if (slot === "color" && !val) return;   // colour is the one required channel
+      g[slot] = val || null;
+      this._applyActive(dsId);
+    },
+    _setSlotRep(dsId, rep) {
+      const g = this._grpOf(dsId); if (!g || !rep || g.rep === rep) return;
+      g.rep = rep;
+      this._applyActive(dsId);
+    },
+
     _setLayerField(dsId, layerId, field, val) {
       const grp = this._grpOf(dsId); const L = (grp.layers || []).find((x) => x.id === layerId); if (!L) return;
       L[field] = val; this._applyActive(dsId);
     },
     _addLayer(dsId) {
-      const grp = this._grpOf(dsId), used = grp.layers.map((L) => L.measure);
+      const grp = this._grpOf(dsId);
+      if (!grp || !grp.layers) return;   // slots pages have no layer list
+      const used = grp.layers.map((L) => L.measure);
       const measures = this._measures(this._groupMeasures(dsId));
       const nextIdx = Math.max(0, measures.findIndex((m) => used.indexOf(m.key) === -1));
       const nextChan = CHANNELS[Math.min(grp.layers.length, CHANNELS.length - 1)].key;
@@ -303,7 +399,7 @@
       // a glyph page (Across) may drop to zero extra layers; a plain group keeps at least one
       const page = this._builtin(dsId, this._curPage(dsId));
       const grp = this._grpOf(dsId), min = (page && page.glyph) ? 0 : 1;
-      if (grp.layers.length <= min) return;
+      if (!grp || !grp.layers || grp.layers.length <= min) return;
       grp.layers = grp.layers.filter((L) => L.id !== layerId);
       this._applyActive(dsId);
     },
@@ -324,7 +420,9 @@
     },
     _applyActive(dsId) {
       const page = this._builtin(dsId, this._curPage(dsId));
-      if (page && page.glyph) this._applyAcross(dsId); else this._applySingle(dsId);
+      if (page && page.slots) this._applySlots(dsId);
+      else if (page && page.glyph) this._applyAcross(dsId);
+      else this._applySingle(dsId);
     },
     // ---- temporal toggle (Weather / Sales / Heat features / Atlas) ----
     // Truth comes from the engine when it can tell us; _time is the fallback.
@@ -379,13 +477,44 @@
       Panels.applyRepresentation(dsId, baseRep);
       this._applying = false;
       if (typeof exitTimeMode === "function") exitTimeMode();
-      map.layerVar = {}; map.layerHeightVar = {};
+      map.layerVar = {}; map.layerHeightVar = {}; map.layerSizeVar = {}; map.sizeBy = null;
       const c = this._compositeLayers(this._grpOf(dsId, this._curPage(dsId)).layers);
       c.on.boundary = true; c.on.roads = true;
       Object.keys(map.layers).forEach((k) => { map.layers[k] = !!c.on[k]; });
       if (c.firstColor) map.colorBy = c.firstColor;
       this._applyAppearance(dsId);
       if (typeof Panels !== "undefined") Panels.selectedRep = "single";
+      map.render(); this._afterApply();
+    },
+    // Compare (2–3) = ONE mark carrying up to three channels. Ordering mirrors
+    // _applySingle and is load-bearing: applyRepresentation() unifies colour AND height
+    // onto the dataset's own metric (panels.js), so we let it run and overwrite AFTER it
+    // returns rather than touching those unify call sites.
+    _applySlots(dsId) {
+      if (typeof Panels === "undefined" || typeof map === "undefined" || !map) { this.sync(); return; }
+      const page = this._builtin(dsId, this._curPage(dsId)) || {};
+      const s = this._grpOf(dsId) || this._newSlots(dsId, page.key);
+      const rep = this._slotRep(dsId, page.key);
+      this._applying = true;
+      Panels.applyRepresentation(dsId, rep);
+      this._applying = false;
+      if (typeof exitTimeMode === "function") exitTimeMode();
+      map.layerVar = {}; map.layerHeightVar = {}; map.layerSizeVar = {}; map.sizeBy = null;
+      const ok = (k) => !!(k && typeof Atlas !== "undefined" && Atlas.metricSpec(k));
+      const rt = (typeof REP_TYPES !== "undefined" && REP_TYPES[rep]) || {};
+      const mark = rt.mark || "bubble";
+      const chans = this._repChannels(rep);
+      if (ok(s.color)) { map.layerVar[mark] = s.color; map.colorBy = s.color; }
+      // An unbound secondary channel follows colour rather than being left alone —
+      // otherwise the mark stays on the dataset's unified metric, i.e. a variable the
+      // user never picked. Channels this design lacks are simply not written.
+      if (chans.includes("height")) {
+        map.layerHeightVar[mark] = ok(s.height) ? s.height : (ok(s.color) ? s.color : map.heightBy);
+      }
+      if (chans.includes("size") && ok(s.size)) map.layerSizeVar[mark] = s.size;
+      map.layers.boundary = true; map.layers.roads = true;
+      this._applyAppearance(dsId);
+      Panels.selectedRep = rep;
       map.render(); this._afterApply();
     },
     // Across = the six-theme sector glyph + optional variable-layers composited on top.
@@ -395,7 +524,7 @@
       this._applying = true;
       Panels.applyRepresentation(dsId, g.rep);   // sets sectorView + base allow-list
       this._applying = false;
-      map.layerVar = {}; map.layerHeightVar = {};
+      map.layerVar = {}; map.layerHeightVar = {}; map.layerSizeVar = {}; map.sizeBy = null;
       const c = this._compositeLayers(g.layers);
       map.layers.boundary = true;
       Object.keys(c.on).forEach((k) => { map.layers[k] = true; });   // add data layers over the glyph
@@ -504,10 +633,12 @@
         const inds = (typeof Atlas !== "undefined" && Atlas.availableMapMetrics)
           ? Atlas.availableMapMetrics().filter((m) => m.kind === "industry").map((m) => ({ key: m.key, label: m.label }))
           : [];
-        return groups.concat(inds);
+        // All six themes summed. This is a VALUE, not a structure — it used to have its
+        // own "Total" page, which made Single/Total look like different ways of
+        // reading the map when they are the same one variable deep.
+        return [{ key: "sales_total", label: "Total sales (₩)" }].concat(groups, inds);
       }
       if (kind === "rhsiOnly") { return [{ key: "RHSI_retail", label: "RHSI (heat sensitivity)" }]; }
-      if (kind === "salesTotal") { return [{ key: "sales_total", label: "Total sales (₩)" }]; }
       // generated config: a single metric taken from the dataset's meta map key
       if (typeof kind === "string" && kind.indexOf("autoKey:") === 0) {
         const k = kind.slice(8);
@@ -543,9 +674,11 @@
       if (key && key.indexOf("saved:") === 0) {
         const s = this._savedById(dsId, key.slice(6)); if (!s) return this._firstPage(dsId);
         const base = this._builtin(dsId, s.page) || this._firstPage(dsId) || {};
-        // carry the base page's group/glyph flags so saved presets take the same code paths
+        // carry the base page's group/glyph/slots flags so saved presets take the same
+        // code paths — omitting `slots` sent a saved Compare (2–3) down the free-editor
+        // branch and restored it as a layer list instead of three channels.
         return { key: s.page, label: s.name, icon: "★", supported: base.supported !== false, reps: base.reps,
-          measures: base.measures, hint: base.hint, group: base.group, glyph: base.glyph, _saved: s };
+          measures: base.measures, hint: base.hint, group: base.group, glyph: base.glyph, slots: base.slots, _saved: s };
       }
       return this._builtin(dsId, key) || this._firstPage(dsId);
     },
@@ -606,6 +739,14 @@
         const s = page._saved;
         if (s.appear) this._appear[dsId] = Object.assign(this._appear[dsId] || {}, s.appear);
         else if (s.scheme) this._appear[dsId].scheme = s.scheme;
+        if (page.group && page.slots) {
+          // s.slots is absent on presets saved before the channel model existed; fall
+          // back to their single `measure` as the colour and default the rest.
+          this._grp[dsId][page.key] = s.slots
+            ? Object.assign(this._newSlots(dsId, page.key), s.slots)
+            : Object.assign(this._newSlots(dsId, page.key), s.measure ? { color: s.measure } : {});
+          this._applyActive(dsId); return;
+        }
         if (page.group && !page.glyph) {
           this._grp[dsId][page.key] = { layers: (s.layers && s.layers.length) ? s.layers.map((L) => this._cloneLayer(L)) : [this._newLayer(dsId, "color", 0)] };
           this._applyActive(dsId); return;
@@ -669,7 +810,16 @@
       const page = this._pageByKey(dsId, this._page[dsId]);
       if (!page || page.supported === false) { this.sync(); return; }
       this._time[dsId] = false;
-      if (page.group && !o.rep) { this._applyActive(dsId); return; }
+      // A group page owns its design on the group itself. Letting a {rep} click fall
+      // through to _applyPage would unify colour+height onto one variable and wipe the
+      // per-channel bindings Compare (2–3) had just set.
+      if (page.group) {
+        if (o.rep && (page.slots || page.glyph)) {
+          const g = this._grpOf(dsId, page.key);
+          if (g) g.rep = o.rep;
+        }
+        this._applyActive(dsId); return;
+      }
       this._applyPage(dsId, o.rep || this._repFor(dsId, page), o.measure);
     },
     // The representation a page is currently showing: the applied one when it belongs to
@@ -705,9 +855,12 @@
         appear: Object.assign({}, this._appear[dsId]) };
       const gp = this._builtin(dsId, page.key);
       if (gp && gp.group) {
-        const g = this._grpOf(dsId, page.key);
-        snap.layers = (g.layers || []).map((L) => ({ channel: L.channel, measure: L.measure }));
-        if (gp.glyph) snap.rep = g.rep;
+        const g = this._grpOf(dsId, page.key) || {};
+        if (gp.slots) snap.slots = { rep: g.rep || null, color: g.color || null, height: g.height || null, size: g.size || null };
+        else {
+          snap.layers = (g.layers || []).map((L) => ({ channel: L.channel, measure: L.measure }));
+          if (gp.glyph) snap.rep = g.rep;
+        }
       }
       return snap;
     },
@@ -735,8 +888,8 @@
       }
       const page = this._builtin(dsId, activeKey) || this._firstPage(dsId);
       if (page.group) {
-        this._grp[dsId][page.key] = page.glyph
-          ? { rep: (page.reps && page.reps[0]) || "rings", layers: [] }
+        this._grp[dsId][page.key] = page.slots ? this._newSlots(dsId)
+          : page.glyph ? { rep: (page.reps && page.reps[0]) || "rings", layers: [] }
           : { layers: [this._newLayer(dsId, "color", 0)] };
         this._applyActive(dsId); return;
       }

@@ -17,6 +17,12 @@ Thumbs.db
 # docs / prototype
 docs/
 
+# Working documents — session handoffs, notes, plans, reports. They are written for
+# one session and go stale immediately, so they stay local. README is the one document
+# the repo keeps; LICENSE.txt is not ignored because only *.md is.
+*.md
+!README.md
+
 # data preparation
 # scripts/
 

@@ -12,13 +12,28 @@
 // glyph, time-flow, or 2D, plus slider tuning. Colour/height come from the dataset's
 // own metric (DATASETS_META[id].map.key). `Panels.applyRepresentation` applies one.
 const REP_TYPES = {
-  choropleth: { label: "Choropleth",   layers: ["roads", "choropleth", "labels"], sliders: { elevation: 0.12, radius: 1.0, opacity: 1.0, glow: 1.0 } },
+  // `channels` / `mark` are what make a representation usable by the Compare (2–3)
+  // structure: which visual channels it can carry, and the layer key those channel
+  // bindings are written to. A rep without them is single-variable only.
+  choropleth: { label: "Choropleth",   layers: ["roads", "choropleth", "labels"], channels: ["color", "height"], mark: "choropleth", sliders: { elevation: 0.12, radius: 1.0, opacity: 1.0, glow: 1.0 } },
   // Purpose-built flat 2D map: top-down (pitch 0), no glow, elevation locked flat.
   // Separate from `choropleth` so the 3D view can rise while this stays a clean 2D
   // comparison surface. Sales `flat` is static (does NOT enter time playback).
   flat:       { label: "Flat 2D",      layers: ["roads", "choropleth", "labels"], mode: "2d", sliders: { elevation: 0, radius: 1.0, opacity: 1.0, glow: 0.9 } },
-  bars:       { label: "3D bars",      layers: ["boundary", "roads", "columns", "labels"], height: true, sliders: { elevation: 0.12, radius: 1.0, opacity: 0.95, glow: 1.0 } },
+  // No size channel: deck's ColumnLayer takes `radius` as a scalar prop, not an
+  // accessor, so a column cannot vary its footprint per region.
+  bars:       { label: "3D bars",      layers: ["boundary", "roads", "columns", "labels"], height: true, channels: ["color", "height"], mark: "columns", sliders: { elevation: 0.12, radius: 1.0, opacity: 0.95, glow: 1.0 } },
   points:     { label: "Glow points",  layers: ["boundary", "roads", "pointCore", "pointHalo", "labels"], sliders: { elevation: 0.12, radius: 1.0, opacity: 0.9, glow: 1.4 } },
+  // Plain (non-glow) points — kepler.gl style: solid ~0.8-opacity dots, no bloom.
+  // Flat, so its second channel is radius rather than z — colour × size.
+  plainpoints:{ label: "Points",       layers: ["boundary", "roads", "pointPlain", "labels"], channels: ["color", "size"], mark: "pointPlain", sliders: { elevation: 0.12, radius: 1.0, opacity: 0.9, glow: 1.0 } },
+  // Mathematica-style 3D bubble chart: ONE translucent disc per region, lifted by a
+  // height variable, sized by a third variable, hued by the first. `normal` blend is
+  // load-bearing — the look depends on overlaps DARKENING, and additive whitens them.
+  // `labels` is left out on purpose: label stems would double up the drop lines.
+  bubble:     { label: "Bubbles",      layers: ["boundary", "roads", "bubble"], height: true, blend: "normal",
+                channels: ["color", "height", "size"], mark: "bubble",
+                sliders: { elevation: 1.0, radius: 1.0, opacity: 0.55, glow: 1.0 } },
   rings:      { label: "Rings",        layers: ["boundary"], sector: "rings", sliders: { elevation: 1.0, radius: 1.2, opacity: 0.85, glow: 1.3 } },
   radial:     { label: "Radial",       layers: ["boundary"], sector: "radial", sliders: { elevation: 1.0, radius: 1.2, opacity: 0.85, glow: 1.3 } },
   columns:    { label: "Columns",      layers: ["boundary"], sector: "columns", sliders: { elevation: 1.4, radius: 1.1, opacity: 0.85, glow: 1.2 } },
@@ -41,7 +56,7 @@ const REP_TYPES = {
 // One glyph per representation — the Layer-Set rail is only 172px wide, so a row
 // shows the icon alone and the full name appears in the picker it opens.
 const REP_ICON = {
-  choropleth: "▦", flat: "▭", bars: "▮", points: "⊙",
+  choropleth: "▦", flat: "▭", bars: "▮", points: "⊙", plainpoints: "•", bubble: "◌",
   rings: "◎", radial: "✳", columns: "▥", dominant: "◧",
   signedcols: "⇅", divided: "◨", buildingmix: "◱",
   heatfield: "☀", compare: "⊗", heatmap: "◍", hexbin: "⬡",
@@ -50,7 +65,7 @@ const REP_ICON = {
 
 // Every design a single variable can take (each maps to a REP_TYPES entry).
 // Shared by the Single and Total structures of every dataset.
-const DESIGN_REPS = ["choropleth", "flat", "bars", "points", "heatmap", "hexbin", "dotfield", "valuerings"];
+const DESIGN_REPS = ["choropleth", "flat", "bars", "points", "plainpoints", "heatmap", "hexbin", "dotfield", "valuerings"];
 
 // A GROUP holds variable-layers; each layer picks a DESIGN (its representation),
 // which maps to real map layers. Different designs composite together.

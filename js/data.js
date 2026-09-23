@@ -173,6 +173,18 @@ const Atlas = {
   buildingsURL() {
     return (typeof window !== "undefined" && window.ATLAS_BUILDINGS_URL) || "data/buildings.json";
   },
+  // Persistent cross-reload cache for the big buildings file (see ensureBuildings).
+  // Cache Storage is best-effort: unsupported / private mode / evicted → just miss and
+  // re-fetch, never throw.
+  _BUILDINGS_CACHE: "atlas-buildings-v1",
+  _openBuildingsCache(url) {
+    if (typeof caches === "undefined") return Promise.resolve(null);
+    return caches.open(this._BUILDINGS_CACHE).then((c) => c.match(url)).catch(() => null);
+  },
+  _putBuildingsCache(url, res) {
+    if (typeof caches === "undefined") return;
+    caches.open(this._BUILDINGS_CACHE).then((c) => c.put(url, res)).catch(() => {});
+  },
   // onProgress(loadedBytes, totalBytes) is called while streaming so the UI can show
   // real progress on this large download. NOTE: when the server gzips, content-length
   // is the COMPRESSED size while the reader yields decompressed bytes, so the caller
@@ -180,9 +192,18 @@ const Atlas = {
   ensureBuildings(onProgress) {
     if (this.buildings) return Promise.resolve(this.buildings);
     if (this._buildingsPromise) return this._buildingsPromise;
-    return (this._buildingsPromise = fetch(this.buildingsURL())
+    const url = this.buildingsURL();
+    // The 64 MB file is served from R2 with NO cache headers, so every reload re-fetched
+    // it. Keep our own copy in the Cache Storage API keyed by URL: a hit returns with
+    // zero network, a miss fetches once and stores the response. Works the same on
+    // localhost and in production (both hit R2), so deploy behaviour is still testable.
+    return (this._buildingsPromise = this._openBuildingsCache(url)
+      .then((cached) => cached || fetch(url).then((r) => {
+        if (r && r.ok) this._putBuildingsCache(url, r.clone());   // clone: body read once below
+        return r;
+      }))
       .then((r) => {
-        if (!r.ok) return null;
+        if (!r || !r.ok) return null;
         if (!onProgress || !r.body || !r.body.getReader) return r.json();
         const reader = r.body.getReader();
         const total = +(r.headers.get("content-length") || 0);
